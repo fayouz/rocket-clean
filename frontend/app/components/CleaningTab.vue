@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { CleaningAssignee, CleaningTask, CleaningType, OccupiedPeriod } from '~/types/place'
+import type { TemplateLine } from '~/utils/assistant/parser'
+import { formatTemplateLine, parseTemplateLine } from '~/utils/assistant/parser'
 
 // "Ménage" tab of a place: its cleanings; an administrator plans new ones and edits the checklist template
 // (copied into each new cleaning, existing ones keep theirs), picks the assignee among the accounts (who then gets
@@ -15,12 +17,15 @@ const typeItems = CLEANING_TYPES.map(t => ({ label: CLEANING_TYPE_LABEL[t]!, val
 
 // Checklist template of the place, one per type of cleaning (a type without one uses the "Location" template).
 const checklistType = ref<CleaningType>('rental')
-const { data: checklist } = await useAsyncData(`cleaning-checklist-${props.placeId}`, () => api<string[]>(`/api/places/${props.placeId}/cleaning-checklist`, { query: { type: checklistType.value } }), { default: () => [], watch: [checklistType] })
-const checklistText = ref(checklist.value.join('\n'))
-watch(checklist, v => checklistText.value = v.join('\n'))
+// One point per line: "Label | synonyms, for, the, voice | photo: Area" (utils/assistant/parser.ts, parseTemplateLine).
+const { data: checklist } = await useAsyncData(`cleaning-checklist-${props.placeId}`, () => api<TemplateLine[]>(`/api/places/${props.placeId}/cleaning-checklist`, { query: { type: checklistType.value, details: 1 } }), { default: () => [], watch: [checklistType] })
+const toText = (lines: TemplateLine[]) => lines.map(formatTemplateLine).join('\n')
+const checklistText = ref(toText(checklist.value))
+watch(checklist, v => checklistText.value = toText(v))
 async function saveChecklist() {
   try {
-    checklist.value = await api<string[]>(`/api/places/${props.placeId}/cleaning-checklist`, { method: 'PUT', query: { type: checklistType.value }, body: { items: checklistText.value.split('\n') } })
+    const items = checklistText.value.split('\n').map(parseTemplateLine).filter(l => l !== null)
+    checklist.value = await api<TemplateLine[]>(`/api/places/${props.placeId}/cleaning-checklist`, { method: 'PUT', query: { type: checklistType.value, details: 1 }, body: { items } })
     toast.add({ title: 'Checklist enregistrée', color: 'success' })
   }
   catch (error) {
@@ -37,6 +42,7 @@ const NOTIFICATIONS = [
   { key: 'assignment', label: 'À l’attribution (à la personne, avec le lien)' },
   { key: 'late', label: 'Ménages en retard (chaque matin, aux admins)' },
   { key: 'summary', label: 'Bilan du jour (chaque soir, aux admins)' },
+  { key: 'report', label: 'Compte rendu de chaque ménage terminé (aux admins)' },
 ] as const
 const { data: notifications } = await useAsyncData('cleaning-settings', () => isAdmin.value ? api<Record<string, boolean>>('/api/cleaning-settings') : Promise.resolve({} as Record<string, boolean>), { default: (): Record<string, boolean> => ({}) })
 async function setNotification(key: string, value: boolean) {
@@ -136,6 +142,7 @@ async function remove(task: CleaningTask) {
         <template #header><b class="text-sm">Checklist du lieu</b></template>
         <USelect v-model="checklistType" :items="typeItems" size="sm" class="mb-2 w-full" aria-label="Type de ménage" />
         <p class="mb-2 text-xs text-muted">Un point par ligne, recopiée dans chaque nouveau ménage de ce type (sans modèle, celui de « Location » sert).</p>
+        <p class="mb-2 text-xs text-muted">Pour l’assistant vocal : <code>Salle de bain | sdb, douche | photo</code> (synonymes séparés par des virgules ; « photo » ou « photo: Chambre » demande une photo de la pièce en fin de ménage).</p>
         <UTextarea v-model="checklistText" :rows="8" class="w-full" />
         <UButton class="mt-2" block variant="soft" label="Enregistrer" @click="saveChecklist" />
       </UCard>

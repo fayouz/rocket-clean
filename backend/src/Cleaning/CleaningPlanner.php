@@ -25,10 +25,17 @@ final class CleaningPlanner
             $this->em->getRepository(CleaningChecklistItem::class)->findBy(['placeId' => $placeId, 'type' => $type], ['position' => 'ASC']));
     }
 
-    /** @return list<string> checklist copied into a new cleaning: the type's template, else the rental (default) one */
+    /** @return list<array{label: string, synonyms?: list<string>, photo?: bool, area?: string}> the template with the assistant's details */
+    public function checklistLines(string $placeId, string $type): array
+    {
+        return array_map(static fn (CleaningChecklistItem $i) => $i->toLine(),
+            $this->em->getRepository(CleaningChecklistItem::class)->findBy(['placeId' => $placeId, 'type' => $type], ['position' => 'ASC']));
+    }
+
+    /** @return list<array{label: string, synonyms?: list<string>, photo?: bool, area?: string}> checklist copied into a new cleaning: the type's template, else the rental (default) one */
     public function checklistFor(string $placeId, string $type): array
     {
-        return $this->checklist($placeId, $type) ?: (CleaningTask::RENTAL === $type ? [] : $this->checklist($placeId, CleaningTask::RENTAL));
+        return $this->checklistLines($placeId, $type) ?: (CleaningTask::RENTAL === $type ? [] : $this->checklistLines($placeId, CleaningTask::RENTAL));
     }
 
     public function defaultCost(string $placeId, string $type): ?int

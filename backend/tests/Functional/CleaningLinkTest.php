@@ -134,7 +134,7 @@ final class CleaningLinkTest extends WebTestCase
 
         $this->api('PUT', '/api/cleaning-settings', ['assignment' => false], $this->alice);
         $this->assertStatus(403);
-        self::assertSame(['assignment' => false, 'late' => true, 'summary' => true], $this->api('PUT', '/api/cleaning-settings', ['assignment' => false, 'bogus' => 1], $this->admin));
+        self::assertSame(['assignment' => false, 'late' => true, 'summary' => true, 'report' => false], $this->api('PUT', '/api/cleaning-settings', ['assignment' => false, 'bogus' => 1], $this->admin));
         $this->cleaning(['assigneeEmail' => 'alice@example.org']);
         self::assertCount(1, $mailer->sent());
     }

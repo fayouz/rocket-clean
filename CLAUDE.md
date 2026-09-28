@@ -8,12 +8,13 @@
 - Lieux et stock : `Place/PlaceDirectory` → `Place/PlaceClient` (Rocket Place, `ROCKET_PLACE_URL`/`ROCKET_PLACE_TOKEN`, mode suite par `ServiceTokenProvider` audience `rocket-place`) si configuré, sinon `Site` locaux sans stock. Stock : `Stock/CleaningStock` → `Stock/StockClient` (Rocket Stock, `ROCKET_STOCK_URL`/`ROCKET_STOCK_TOKEN`, audience `rocket-stock` ; relevé = `POST /api/movements` consume `cleaning:<id>:<levelId>` + `PATCH /api/stock-levels/{id}`), sinon stock de Place, sinon aucun. Photos : `Cloud/CloudClient` (+ `DemoCloud`) direct. E-mails : `Mailer/MailerClient` (+ `DemoMailer`).
 - `Controller/CleaningController` (planification = CLEAN_MANAGE, exécution = personne attribuée ou non attribué), `Controller/PlaceController` (lieux), `Controller/PublicCleaningController` (lien secret, `PublicRateLimiter`), `Cleaning/*` (Work, LinkSigner, Notifier, Settings, Schedule). Accès : `Security/CleanAccessVoter`, `Security/CleanScopeGuardListener` (applications pour elles-mêmes). Tableau de bord : `Dashboard/CleaningSection`. Démo : `Command/CleanDemoSeeder`.
 - Les chemins d'API restent ceux de Rocket Place (`/api/places/{placeId}/cleanings`…) : un PMS bascule en changeant l'URL et le jeton.
+- Assistant vocal : `frontend/app/utils/assistant/parser.ts` (analyse pure, tests `npm run test` = `node --test tests/*.test.ts`, repris de Doc Assist `src/Assistant`), `composables/useSpeech.ts` (Web Speech API, aucun son au serveur), `components/CleaningAssistant.vue` (dans `CleaningCard`), compte rendu `Cleaning/CleaningReport` (écrit par `CleaningWork::apply` au passage à done, e-mail `report` désactivé par défaut).
 - Front : `pages/menage.vue` (téléphone), `pages/places/index.vue` + `[id].vue` (`CleaningTab`, `CleaningCard`), `pages/m/[token].vue` (public).
 
 ## Vérifier avant de pousser
 ```bash
 cd backend && php bin/console lint:container && php bin/console doctrine:schema:validate && php bin/phpunit
-cd frontend && npm run lint && npm run typecheck
+cd frontend && npm run lint && npm run typecheck && npm run test
 cd docs && npm run lint && npm run typecheck && npm run generate   # si docs/ a changé
 ```
 
