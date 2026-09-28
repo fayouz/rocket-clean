@@ -4,6 +4,8 @@ namespace App\Controller;
 
 use App\Cleaning\CleaningLinkSigner;
 use App\Cleaning\CleaningWork;
+use App\Cleaning\LinenBridge;
+use App\Linen\CleaningLinen;
 use App\Cleaning\PublicRateLimiter;
 use App\Entity\CleaningTask;
 use App\Repository\CleaningTaskRepository;
@@ -17,7 +19,7 @@ use Symfony\Component\Routing\Attribute\Route;
 
 /**
  * Secret link of a cleaning, without account (/m/<token> in the interface, /api/public/cleaning/<token> here): the
- * cleaner runs that cleaning's checklist, sets its status and notes, adds photos and sets the place's stock levels (Rocket Place's),
+ * cleaner runs that cleaning's checklist, sets its status and notes, adds photos and sets the place's stock levels (Rocket Place's), reports its linen (kits removed/placed),
  * and nothing else (no other cleaning, place, file or user). Rate-limited per IP, never cached nor indexed. The link
  * expires the day after the cleaning (CleaningLinkSigner::expiresAt), and an administrator can regenerate or revoke it.
  */
@@ -91,6 +93,33 @@ final class PublicCleaningController extends AbstractController
         $this->em->flush();
 
         return $this->view($task);
+    }
+
+    /** The "Linge" step through the secret link: {kits, types, movements} of this cleaning. */
+    #[Route('/api/public/cleaning/{token}/linen', name: 'api_public_cleaning_linen', methods: ['GET'], requirements: ['token' => self::TOKEN])]
+    public function linen(string $token, Request $request, CleaningLinen $linen): JsonResponse
+    {
+        return $this->noStore($this->json($linen->view(LinenBridge::job($this->task($token, $request)))));
+    }
+
+    /** Same body as POST /api/cleanings/{id}/linen ("key" makes an offline replay idempotent). */
+    #[Route('/api/public/cleaning/{token}/linen', name: 'api_public_cleaning_linen_record', methods: ['POST'], requirements: ['token' => self::TOKEN])]
+    public function recordLinen(string $token, Request $request, CleaningLinen $linen): JsonResponse
+    {
+        $job = LinenBridge::job($this->task($token, $request));
+        $result = $linen->record($job, $request->toArray(), null);
+        $this->em->flush();
+
+        return $this->noStore($this->json($result + $linen->view($job), $result['alreadyRecorded'] ? 200 : 201));
+    }
+
+    private function noStore(JsonResponse $response): JsonResponse
+    {
+        $response->headers->set('Cache-Control', 'no-store, private');
+        $response->headers->set('X-Robots-Tag', 'noindex, nofollow');
+        $response->headers->set('Referrer-Policy', 'no-referrer');
+
+        return $response;
     }
 
     private function task(string $token, Request $request): CleaningTask

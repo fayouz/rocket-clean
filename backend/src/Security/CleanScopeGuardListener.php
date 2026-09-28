@@ -11,14 +11,14 @@ use Symfony\Component\HttpKernel\Event\RequestEvent;
 
 /**
  * rocket-core only lets an application that does not impersonate anyone call GET /api/me. Clean opens its own
- * business endpoints (places, cleanings, checklists, stock, occupancy, costs, recurrences, cost export) to such applications, so a PMS can drive
+ * business endpoints (places, cleanings, checklists, stock, occupancy, costs, recurrences, cost export, and the linen module /api/linen/*) to such applications, so a PMS can drive
  * cleanings server-to-server; every other endpoint (users, applications, settings, assignees…) stays guarded by
  * rocket-core's listener.
  */
 #[AsDecorator(ScopeGuardListener::class)]
 final class CleanScopeGuardListener
 {
-    private const APPLICATION_PATTERN = '#^/api/(places(/[^/]+(/(cleanings|cleaning-checklist|stock|occupancy|cleaning-costs|recurrences))?)?|cleanings(/[^/]+(/(photos(/[^/]+)?|stock|link))?)?|recurrences/[^/]+)$#';
+    private const APPLICATION_PATTERN = '#^/api/(places(/[^/]+(/(cleanings|cleaning-checklist|stock|occupancy|cleaning-costs|recurrences))?)?|cleanings(/[^/]+(/(photos(/[^/]+)?|stock|link|linen))?)?|recurrences/[^/]+|linen(/[A-Za-z0-9_-]+)*)$#';
 
     public function __construct(
         #[AutowireDecorated] private readonly ScopeGuardListener $inner,

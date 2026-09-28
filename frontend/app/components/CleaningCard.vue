@@ -3,7 +3,7 @@ import type { CleaningReport, CleaningTask, StockLine } from '~/types/place'
 import type { AssistantActions } from '~/components/CleaningAssistant.vue'
 
 // One cleaning, made for a phone: status buttons, checklist, photos (before/after/damage, straight from the camera,
-// with thumbnails and a lightbox), stock levels of the place and notes. Every change is saved at once and the updated
+// with thumbnails and a lightbox), stock levels of the place, linen (LinenCleaningStep) and notes. Every change is saved at once and the updated
 // task is emitted. With "token" it works through the secret link without account (/api/public/cleaning/<token>);
 // with "manage" (administrator) it also shows the secret link to copy or regenerate. "Assistant vocal" opens the
 // hands-free guide (CleaningAssistant), which acts through the same functions.
@@ -241,6 +241,8 @@ async function upload(event: Event, moment: string) {
         </div>
         <p v-if="!levels.length" class="text-xs text-muted">Aucun article suivi pour ce lieu.</p>
       </section>
+
+      <LinenCleaningStep :cleaning-id="task.id" :token="token" />
 
       <section v-if="task.incidents?.length">
         <h3 class="mb-2 text-sm font-semibold text-error">Problèmes signalés</h3>
