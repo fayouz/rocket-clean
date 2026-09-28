@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#059669">
+<title>Hors ligne · Rocket Clean</title>
+<style>
+  :root { color-scheme: light dark; --bg: #fff; --fg: #0f172a; --muted: #64748b; --accent: #059669 }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0f172a; --fg: #f1f5f9; --muted: #94a3b8 } }
+  body { margin: 0; min-height: 100dvh; display: grid; place-items: center; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif }
+  main { max-width: 22rem; padding: 1.5rem; text-align: center }
+  img { width: 72px; height: 72px }
+  p { color: var(--muted) }
+  button { font: inherit; border: 0; border-radius: .5rem; padding: .7rem 1.2rem; background: var(--accent); color: #fff }
+</style>
+</head>
+<body>
+<main>
+  <img src="/icon.svg" alt="">
+  <h1>Hors ligne</h1>
+  <p>Cette page n’a pas encore été ouverte sur ce téléphone. Les pages déjà consultées restent disponibles ; reconnecte-toi pour le reste.</p>
+  <button type="button" onclick="location.reload()">Réessayer</button>
+</main>
+</body>
+</html>
