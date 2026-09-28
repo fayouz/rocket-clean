@@ -1,6 +1,6 @@
 # Rocket Clean
 
-**Ménage** des lieux (logements, locaux…) : ménages planifiés par lieu, checklist, photos avant/après/dégât (Rocket Cloud), relevés de stock (Rocket Place), lien secret sans compte pour la personne qui fait le ménage, e-mails (Rocket Mailer), tableau de bord. Extrait de [rocket-place](https://github.com/fayouz/rocket-place) ; brique du Middleware Rocket, sur le socle [rocket-core](https://github.com/fayouz/rocket-core).
+**Ménage** des lieux (logements, locaux…) : ménages planifiés par lieu, checklist, photos avant/après/dégât (Rocket Cloud), relevés de stock (Rocket Stock / Place), **linge** (kits, états, lavages, blanchisserie, alertes avant arrivée), lien secret sans compte pour la personne qui fait le ménage, e-mails (Rocket Mailer), tableau de bord. Extrait de [rocket-place](https://github.com/fayouz/rocket-place) ; brique du Middleware Rocket, sur le socle [rocket-core](https://github.com/fayouz/rocket-core).
 
 | Dossier | Stack |
 |---|---|
@@ -77,5 +77,7 @@ Mêmes chemins et contrats que le ménage de Rocket Place : passer de Place à C
 - Types (`?type=`), origine, coûts : `GET · PUT /api/places/{placeId}/cleaning-costs`, `GET /api/cleanings/export?type=rental`
 - Séjours `PUT /api/places/{placeId}/occupancy` → drapeau `conflict` ; récurrences `/api/places/{placeId}/recurrences`, `/api/recurrences/{id}`
 - `GET /api/cleaning-assignees`, `GET · PUT /api/cleaning-settings` (administrateur)
+
+- **Linge** (module isolé `App\Linen`, tables `linen_*`) : `/api/linen/types`, `/kits`, `/places/{placeId}/needs|counts|movements`, `/summary`, `/readiness?place=&date=`, `/alerts`, `/costs`, `/washes`, `/laundries`, `/batches` (+ `/return`, `/email`), `/replacements` ; étape Linge d'un ménage `POST /api/cleanings/{id}/linen` (et par le lien secret)
 
 Détail : `docs/content/3.api/2.domain.md`.
