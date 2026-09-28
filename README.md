@@ -81,3 +81,17 @@ Mêmes chemins et contrats que le ménage de Rocket Place : passer de Place à C
 - **Linge** (module isolé `App\Linen`, tables `linen_*`) : `/api/linen/types`, `/kits`, `/places/{placeId}/needs|counts|movements`, `/summary`, `/readiness?place=&date=`, `/alerts`, `/costs`, `/washes`, `/laundries`, `/batches` (+ `/return`, `/email`), `/replacements` ; étape Linge d'un ménage `POST /api/cleanings/{id}/linen` (et par le lien secret)
 
 Détail : `docs/content/3.api/2.domain.md`.
+
+## Images Docker
+
+Publiées par la CI (workflow réutilisable `docker-images.yml` de rocket-core) **uniquement** sur tag `vX.Y.Z` et lancement manuel (Actions → CI → Run workflow) :
+
+| Image | Contenu |
+| --- | --- |
+| `ghcr.io/fayouz/rocket-clean-api` | API Symfony + worker (FrankenPHP Alpine, `composer --no-dev`, opcache, cible `prod` de `backend/Dockerfile`) |
+| `ghcr.io/fayouz/rocket-clean-front` | Front Nuxt (`.output` seul, `node:22-alpine`, utilisateur `node`, cible `prod` de `frontend/Dockerfile`) |
+
+- Tags : `vX.Y.Z`, `X.Y.Z`, `X.Y`, `latest` (dernier tag) et `sha-<commit>` ; multi-arch `linux/amd64` + `linux/arm64` ; labels OCI (source, version, révision), SBOM et provenance.
+- Sur les PR et branches : build `linux/amd64` de validation + tests de fumée, jamais poussé.
+- Le dépôt est privé : les images sont **privées** (visibilité par défaut, à garder). Plan GitHub Free : 500 Mo de stockage et 1 Go/mois de transfert pour les paquets privés (au-delà : facturé ou bloqué) — supprimer les anciennes versions (`sha-…`) et ne publier que sur tag. Pour tirer les images : `docker login ghcr.io` avec un jeton `read:packages`.
+- Exemple de déploiement : [`compose.prod.yaml`](compose.prod.yaml) (base, API, worker, front, labels Traefik en commentaire).

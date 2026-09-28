@@ -1,0 +1,85 @@
+# Production example with the images published by the CI (ghcr.io, tags v*): no build, no source code needed.
+#   cp .env.example .env  # then fill the variables below
+#   docker compose -f compose.prod.yaml up -d
+# Private images: log in first with `echo $GHCR_TOKEN | docker login ghcr.io -u <user> --password-stdin` (token with read:packages); pin a version (IMAGE_TAG=vX.Y.Z) rather than latest.
+# Every variable of the brick (connectors, LDAP, Rocket Auth, ...) is listed in compose.yaml (x-api-env) and README.md.
+name: rocket-clean
+
+x-api-env: &api-env
+  APP_ENV: prod
+  APP_SECRET: ${APP_SECRET:?APP_SECRET is required}
+  DATABASE_URL: postgresql://app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@database:5432/app?serverVersion=16&charset=utf8
+  MESSENGER_TRANSPORT_DSN: doctrine://default
+  JWT_PASSPHRASE: ${JWT_PASSPHRASE:?JWT_PASSPHRASE is required}
+  SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:-}
+  SETUP_TOKEN: ${SETUP_TOKEN:-}
+  CORS_ALLOW_ORIGIN: ${CORS_ALLOW_ORIGIN:?CORS_ALLOW_ORIGIN is required, e.g. ^https://clean\.example\.org$$}
+  UPDATE_REPOSITORY: fayouz/rocket-clean
+
+services:
+  database:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD", "pg_isready", "-d", "app", "-U", "app"]
+      interval: 5s
+      retries: 10
+    volumes:
+      - database_data:/var/lib/postgresql/data
+
+  api:
+    image: ghcr.io/fayouz/rocket-clean-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *api-env
+      RUN_MIGRATIONS: "1"
+    volumes:
+      - jwt_keys:/app/config/jwt
+      - app_data:/app/var/data
+    depends_on:
+      database:
+        condition: service_healthy
+    # labels:
+    #   - traefik.enable=true
+    #   - traefik.http.routers.rocket-clean-api.rule=Host(`api.clean.example.org`)
+    #   - traefik.http.routers.rocket-clean-api.entrypoints=websecure
+    #   - traefik.http.routers.rocket-clean-api.tls.certresolver=le
+    #   - traefik.http.services.rocket-clean-api.loadbalancer.server.port=80
+
+  worker:
+    image: ghcr.io/fayouz/rocket-clean-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment: *api-env
+    command: ["php", "bin/console", "messenger:consume", "async", "scheduler_default", "--time-limit=3900", "-vv"]
+    # The worker does not serve HTTP: the image health check does not apply.
+    healthcheck:
+      disable: true
+    volumes:
+      - jwt_keys:/app/config/jwt
+      - app_data:/app/var/data
+    depends_on:
+      - api
+
+  front:
+    image: ghcr.io/fayouz/rocket-clean-front:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      NUXT_PUBLIC_API_BASE: ${PUBLIC_API_BASE:?PUBLIC_API_BASE is required, e.g. https://api.clean.example.org}
+      NUXT_API_INTERNAL_BASE: http://api:80
+    depends_on:
+      - api
+    # labels:
+    #   - traefik.enable=true
+    #   - traefik.http.routers.rocket-clean-front.rule=Host(`clean.example.org`)
+    #   - traefik.http.routers.rocket-clean-front.entrypoints=websecure
+    #   - traefik.http.routers.rocket-clean-front.tls.certresolver=le
+    #   - traefik.http.services.rocket-clean-front.loadbalancer.server.port=3000
+
+volumes:
+  database_data:
+  jwt_keys:
+  app_data:
