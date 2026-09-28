@@ -7,6 +7,9 @@ export interface Place {
 
 export interface StockLine { id: string, name: string, level: 'ok' | 'low' | 'empty' }
 
+export type CleaningType = 'rental' | 'personal' | 'maintenance'
+export type CleaningOrigin = 'host' | 'pms' | 'place' | 'clean' | 'recurrence'
+
 export type CleaningStatus = 'todo' | 'in_progress' | 'done' | 'cancelled'
 
 export interface CleaningTask {
@@ -14,6 +17,14 @@ export interface CleaningTask {
   placeId: string
   placeName: string
   label: string
+  type: CleaningType
+  origin: CleaningOrigin
+  /** Application that created it (app token). */
+  originApp: string | null
+  /** Cents. */
+  cost: number | null
+  /** Personal/maintenance cleaning overlapping an occupied period of the place. */
+  conflict: boolean
   scheduledAt: string
   dueAt: string | null
   status: CleaningStatus
@@ -32,3 +43,26 @@ export interface CleaningTask {
 }
 
 export interface CleaningAssignee { id: string, email: string, name: string }
+
+export interface CleaningRecurrence {
+  id: string
+  placeId: string
+  placeName: string
+  type: CleaningType
+  label: string
+  frequency: 'weekly' | 'monthly'
+  weekdays: number[]
+  monthDay: number | null
+  nth: number | null
+  nthWeekday: number | null
+  time: string
+  durationMinutes: number
+  assignee: CleaningAssignee | null
+  checklist: string[]
+  cost: number | null
+  active: boolean
+  startsOn: string
+  endsOn: string | null
+}
+
+export interface OccupiedPeriod { from: string, until: string, externalRef: string | null }

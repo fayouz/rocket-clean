@@ -16,7 +16,13 @@ const everyone = computed({
   get: () => route.query.all === '1',
   set: (v: boolean) => navigateTo({ query: { ...route.query, all: v ? '1' : undefined } }, { replace: true }),
 })
-const { data: tasks, refresh } = await useAsyncData('cleanings', () => api<CleaningTask[]>('/api/cleanings', { query: { date: date.value, mine: everyone.value ? undefined : 1 } }), { default: () => [], watch: [date, everyone] })
+const ALL = 'all'
+const type = computed({
+  get: () => CLEANING_TYPES.includes(route.query.type as typeof CLEANING_TYPES[number]) ? String(route.query.type) : ALL,
+  set: (v: string) => navigateTo({ query: { ...route.query, type: v === ALL ? undefined : v } }, { replace: true }),
+})
+const typeItems = [{ label: 'Tous les types', value: ALL }, ...CLEANING_TYPES.map(t => ({ label: CLEANING_TYPE_LABEL[t]!, value: t }))]
+const { data: tasks, refresh } = await useAsyncData('cleanings', () => api<CleaningTask[]>('/api/cleanings', { query: { date: date.value, mine: everyone.value ? undefined : 1, type: type.value === ALL ? undefined : type.value } }), { default: () => [], watch: [date, everyone, type] })
 const replace = (t: CleaningTask) => tasks.value = tasks.value.map(x => x.id === t.id ? t : x)
 const shift = (days: number) => {
   const d = new Date(`${date.value}T12:00:00`)
@@ -44,7 +50,10 @@ const shift = (days: number) => {
             <UButton icon="i-lucide-chevron-right" variant="ghost" @click="shift(1)" />
             <UButton v-if="date !== today" size="sm" variant="link" label="Aujourd’hui" @click="date = today" />
           </div>
-          <USwitch v-if="isAdmin" v-model="everyone" label="Tout le monde" />
+          <div class="flex items-center gap-3">
+            <USelect v-model="type" :items="typeItems" size="sm" class="w-40" aria-label="Type" />
+            <USwitch v-if="isAdmin" v-model="everyone" label="Tout le monde" />
+          </div>
         </div>
       </UDashboardToolbar>
     </template>

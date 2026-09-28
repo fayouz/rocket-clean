@@ -8,7 +8,7 @@ use App\Repository\CleaningTaskRepository;
 use Rocket\Core\Dashboard\DashboardSectionInterface;
 use Rocket\Core\Entity\User;
 
-/** Cleanings on the dashboard: of the day, late, done today, and the list of today's and late cleanings. */
+/** Cleanings on the dashboard: of the day, late, in conflict with a stay, done today, and the list of today's and late cleanings. */
 final class CleaningSection implements DashboardSectionInterface
 {
     public function __construct(
@@ -31,6 +31,7 @@ final class CleaningSection implements DashboardSectionInterface
         $kpis = [
             ['id' => 'cleanings_today', 'label' => 'Ménages du jour', 'value' => $cleaningsToday, 'format' => 'number', 'icon' => 'i-lucide-sparkles', 'tone' => 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'],
             ['id' => 'cleanings_done', 'label' => 'Terminés', 'value' => $done, 'format' => 'number', 'icon' => 'i-lucide-check', 'tone' => 'bg-primary/10 text-primary'],
+            ['id' => 'cleanings_conflict', 'label' => 'En conflit avec un séjour', 'value' => \count(array_filter($cleanings, static fn (CleaningTask $t) => $t->hasConflict())), 'format' => 'number', 'icon' => 'i-lucide-calendar-x', 'tone' => 'bg-amber-500/10 text-amber-600 dark:text-amber-400'],
             ['id' => 'cleanings_late', 'label' => 'Ménages en retard', 'value' => \count($late), 'format' => 'number', 'icon' => 'i-lucide-alarm-clock', 'tone' => 'bg-red-500/10 text-red-600 dark:text-red-400'],
         ];
         if (!$this->places->isRemote()) {
@@ -50,8 +51,8 @@ final class CleaningSection implements DashboardSectionInterface
                     'title' => $t->getPlaceName(),
                     'subtitle' => $t->getLabel().(null !== $t->getAssignee() ? ' · '.$t->getAssignee()->getDisplayName() : ' · non attribué'),
                     'at' => $t->getScheduledAt()->format(\DATE_ATOM),
-                    'badge' => $t->isLate($now) ? 'En retard' : match ($t->getStatus()) { CleaningTask::DONE => 'Fait', CleaningTask::IN_PROGRESS => 'En cours', default => 'À faire' },
-                    'badgeColor' => $t->isLate($now) ? 'error' : match ($t->getStatus()) { CleaningTask::DONE => 'success', CleaningTask::IN_PROGRESS => 'info', default => 'neutral' },
+                    'badge' => $t->hasConflict() ? 'Conflit' : ($t->isLate($now) ? 'En retard' : match ($t->getStatus()) { CleaningTask::DONE => 'Fait', CleaningTask::IN_PROGRESS => 'En cours', default => 'À faire' }),
+                    'badgeColor' => $t->hasConflict() ? 'warning' : ($t->isLate($now) ? 'error' : match ($t->getStatus()) { CleaningTask::DONE => 'success', CleaningTask::IN_PROGRESS => 'info', default => 'neutral' }),
                     'link' => '/menage',
                 ], \array_slice($cleanings, 0, 8)),
             ],
