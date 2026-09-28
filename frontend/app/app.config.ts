@@ -22,6 +22,11 @@ export default defineAppConfig({
       { label: 'Ménage', type: 'label' },
       { label: 'Ménages du jour', icon: 'i-lucide-sparkles', to: '/menage' },
       { label: 'Lieux', icon: 'i-lucide-map-pin', to: '/places' },
+      { label: 'Linge', type: 'label' },
+      { label: 'Vue d’ensemble', icon: 'i-lucide-shirt', to: '/linge', exact: true },
+      { label: 'Kits et besoins', icon: 'i-lucide-layers', to: '/linge/kits' },
+      { label: 'Lavages', icon: 'i-lucide-washing-machine', to: '/linge/lavages' },
+      { label: 'Blanchisserie', icon: 'i-lucide-truck', to: '/linge/blanchisserie' },
     ] as { label: string, icon?: string, to?: string, type?: 'label', exact?: boolean, exactQuery?: boolean, admin?: boolean }[],
     // Extra entries of the Administration menu.
     adminNavigation: [
