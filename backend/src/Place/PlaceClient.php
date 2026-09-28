@@ -2,6 +2,7 @@
 
 namespace App\Place;
 
+use App\Secrets\IntegrationSecrets;
 use Rocket\Core\Oidc\OidcException;
 use Rocket\Core\Suite\ServiceTokenProvider;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -9,7 +10,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
  * Client of Rocket Place (rocket-apps/rocket-place), the owner of the places and their stock. Rocket Clean holds one
- * application token (ROCKET_PLACE_TOKEN, prefix rpl_) and only keeps the id of each place (CleaningTask::$placeId).
+ * application token (secret rocket.place.token, prefix rpl_) and only keeps the id of each place (CleaningTask::$placeId).
  * Without ROCKET_PLACE_URL (or without any token): not configured, Rocket Clean runs standalone on its local Sites
  * (App\Place\PlaceDirectory), no network call at all.
  *
@@ -17,7 +18,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  * with their message, token refused / 5xx / unreachable become a 502 with a clear French message.
  *
  * Suite mode (ROCKET_AUTH_URL + ROCKET_AUTH_CLIENT_SECRET): calls carry an access token of Rocket Auth obtained with
- * the client credentials grant for the audience "rocket-place" (rocket-core ServiceTokenProvider); ROCKET_PLACE_TOKEN
+ * the client credentials grant for the audience "rocket-place" (rocket-core ServiceTokenProvider); secret rocket.place.token
  * stays the fallback (standalone mode, or Rocket Auth unreachable).
  */
 final class PlaceClient
@@ -29,7 +30,7 @@ final class PlaceClient
     public function __construct(
         private readonly HttpClientInterface $http,
         private readonly string $placeUrl,
-        private readonly string $placeToken,
+        private readonly IntegrationSecrets $secrets,
         private readonly ?ServiceTokenProvider $serviceTokens = null,
     ) {
     }
@@ -37,10 +38,10 @@ final class PlaceClient
     /** Whether Rocket Place is configured (else Rocket Clean runs standalone on its local sites). */
     public function isConfigured(): bool
     {
-        return '' !== trim($this->placeUrl) && ('' !== trim($this->placeToken) || $this->usesSuiteTokens());
+        return '' !== trim($this->placeUrl) && ('' !== trim($this->secrets->get('rocket.place.token')) || $this->usesSuiteTokens());
     }
 
-    /** Whether calls use tokens of Rocket Auth (suite mode) rather than the static ROCKET_PLACE_TOKEN. */
+    /** Whether calls use tokens of Rocket Auth (suite mode) rather than the static token rocket.place.token. */
     public function usesSuiteTokens(): bool
     {
         return null !== $this->serviceTokens && $this->serviceTokens->isAvailable();
@@ -53,13 +54,13 @@ final class PlaceClient
             try {
                 return $this->serviceTokens->tokenForClient(self::AUDIENCE);
             } catch (OidcException $e) {
-                if ('' === trim($this->placeToken)) {
+                if ('' === trim($this->secrets->get('rocket.place.token'))) {
                     throw new HttpException(502, 'Rocket Auth ne délivre pas de jeton pour Rocket Place : '.$e->getMessage());
                 }
             }
         }
 
-        return $this->placeToken;
+        return $this->secrets->get('rocket.place.token');
     }
 
     /**
@@ -113,7 +114,7 @@ final class PlaceClient
                 $this->serviceTokens->forget(self::AUDIENCE);
                 throw new HttpException(502, 'Jeton Rocket Auth refusé par Rocket Place (client rocket-clean lié à une application ?).');
             }
-            throw new HttpException(502, 'Jeton Rocket Place refusé (ROCKET_PLACE_TOKEN).');
+            throw new HttpException(502, 'Jeton Rocket Place refusé (secret rocket.place.token).');
         }
         if (403 === $status) {
             throw new HttpException(502, 'Rocket Place refuse cette action à l’application Rocket Clean.');

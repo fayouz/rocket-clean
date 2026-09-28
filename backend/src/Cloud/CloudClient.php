@@ -2,6 +2,7 @@
 
 namespace App\Cloud;
 
+use App\Secrets\IntegrationSecrets;
 use Rocket\Core\Oidc\OidcException;
 use Rocket\Core\Suite\ServiceTokenProvider;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
@@ -10,15 +11,15 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
  * Client of Rocket Cloud (rocket-middleware/rocket-cloud), used to store the cleaning photos of each place. Rocket Clean holds a
- * single application token (ROCKET_CLOUD_TOKEN, prefix rca_) and every place gets its own folder (created lazily,
+ * single application token (secret rocket.cloud.token, prefix rca_) and every place gets its own folder (created lazily,
  * id kept in Site::$cloudFolderId) under a app root folder (created lazily too, one per app instance).
  * The browser never talks to Rocket Cloud directly: this app's controllers proxy every call, scoped to the
- * place's folder, so a PMS user never needs a Cloud account or token. Without ROCKET_CLOUD_URL/TOKEN: DemoCloud
+ * place's folder, so a PMS user never needs a Cloud account or token. Without ROCKET_CLOUD_URL + secret rocket.cloud.token: DemoCloud
  * (no network call at all, keeps functional tests offline as the other integrations do).
  *
  * Suite mode (ROCKET_AUTH_URL + ROCKET_AUTH_CLIENT_SECRET): the calls carry an access token of Rocket Auth obtained
  * with the client credentials grant for the audience "rocket-cloud" (rocket-core ServiceTokenProvider) instead of
- * ROCKET_CLOUD_TOKEN, which stays the fallback (standalone mode, or Rocket Auth unreachable).
+ * secret rocket.cloud.token, which stays the fallback (standalone mode, or Rocket Auth unreachable).
  */
 final class CloudClient
 {
@@ -32,17 +33,17 @@ final class CloudClient
         private readonly HttpClientInterface $http,
         private readonly DemoCloud $demo,
         private readonly string $cloudUrl,
-        private readonly string $cloudToken,
+        private readonly IntegrationSecrets $secrets,
         private readonly ?ServiceTokenProvider $serviceTokens = null,
     ) {
     }
 
     public function isDemo(): bool
     {
-        return '' === $this->cloudUrl || ('' === $this->cloudToken && !$this->usesSuiteTokens());
+        return '' === $this->cloudUrl || ('' === $this->secrets->get('rocket.cloud.token') && !$this->usesSuiteTokens());
     }
 
-    /** Whether calls use tokens of Rocket Auth (suite mode) rather than the static ROCKET_CLOUD_TOKEN. */
+    /** Whether calls use tokens of Rocket Auth (suite mode) rather than the static token rocket.cloud.token. */
     public function usesSuiteTokens(): bool
     {
         return null !== $this->serviceTokens && $this->serviceTokens->isAvailable();
@@ -55,13 +56,13 @@ final class CloudClient
             try {
                 return $this->serviceTokens->tokenForClient(self::AUDIENCE);
             } catch (OidcException $e) {
-                if ('' === $this->cloudToken) {
+                if ('' === $this->secrets->get('rocket.cloud.token')) {
                     throw new HttpException(502, 'Rocket Auth ne délivre pas de jeton pour Rocket Cloud : '.$e->getMessage());
                 }
             }
         }
 
-        return $this->cloudToken;
+        return $this->secrets->get('rocket.cloud.token');
     }
 
     /** Folder of a place, created (and its parent app root folder, if missing) on first use. */

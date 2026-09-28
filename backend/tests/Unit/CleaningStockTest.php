@@ -2,6 +2,7 @@
 
 namespace App\Tests\Unit;
 
+use App\Secrets\IntegrationSecrets;
 use App\Entity\CleaningTask;
 use App\Place\PlaceClient;
 use App\Place\PlaceDirectory;
@@ -44,9 +45,9 @@ final class CleaningStockTest extends TestCase
     private function stock(string $stockUrl, string $placeUrl): CleaningStock
     {
         $http = $this->http();
-        $places = new PlaceDirectory(new PlaceClient($http, $placeUrl, 'rpl_secret'), $this->createStub(SiteRepository::class), $this->createStub(EntityManagerInterface::class));
+        $places = new PlaceDirectory(new PlaceClient($http, $placeUrl, IntegrationSecrets::fixed(['rocket.place.token' => 'rpl_secret'])), $this->createStub(SiteRepository::class), $this->createStub(EntityManagerInterface::class));
 
-        return new CleaningStock(new StockClient($http, $stockUrl, 'rst_secret'), $places);
+        return new CleaningStock(new StockClient($http, $stockUrl, IntegrationSecrets::fixed(['rocket.stock.token' => 'rst_secret'])), $places);
     }
 
     private function task(?string $ref): CleaningTask
