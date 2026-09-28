@@ -2,7 +2,7 @@
 
 Toutes les évolutions notables de Rocket Clean. Format [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions [SemVer](https://semver.org/lang/fr/).
 
-## [Non publié]
+## [0.2.0] - 2026-09-28
 
 ### Ajouté
 - **Linge** (module isolé `App\Linen`, tables `linen_*`, API `/api/linen/*`, pages `/linge/*`, extractible en « Rocket Laundry » ; couplage au ménage par les ports `CleaningJobs`, `ArrivalSource`, `PlaceNames` implémentés par `App\Cleaning\LinenBridge`) : types de linge (poids, article Rocket Stock), kits, besoins par lieu (kits par lit, niveau cible), quantités par lieu, emplacement (réserve, logement) et état (propre, en place, sale, blanchisserie, abîmé, perdu) changées uniquement par des mouvements idempotents (`externalRef`), inventaire ; étape **Linge** du ménage et de la page publique (retiré, mis en place, abîmé ; `cleaning:<id>:linen:<clé>` ; file hors ligne) ; lavages internes attribuables (machine, séchage, pliage → propre) ; blanchisseries (e-mail, tarif kg/pièce, délai), lots envoyés puis comptés au retour (manquants, abîmés, coût), e-mail de dépôt avec aperçu puis envoi confirmé unique ; disponibilité des kits par arrivée pour Rocket Host (`/api/linen/readiness`), résumé, coûts par usage (JSON/CSV), alertes (kits, lots en retard, pertes du mois) et section du tableau de bord ; remplacement du linge perdu/abîmé par une sortie Rocket Stock sur action explicite ; données de démo.
