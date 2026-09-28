@@ -5,6 +5,8 @@ on:
     branches: [main, develop, 'feature/**', 'release/**', 'hotfix/**', 'claude/**']
     tags: ['v*']
   pull_request:
+  # Manual run: publishes the Docker images of the selected ref (tag or branch).
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -34,14 +36,18 @@ jobs:
   images:
     name: Docker images
     needs: [backend, frontend]
-    # Published to ghcr.io on main, develop and version tags.
+    # Published to ghcr.io ONLY for version tags v* and manual runs (multi-arch amd64 + arm64, SBOM, provenance);
+    # pull requests and branches: amd64 validation build + smoke tests, never pushed.
     permissions:
       contents: read
       packages: write
-    uses: fayouz/rocket-core/.github/workflows/brick-images.yml@v0.2.1
+    # TODO: pin to the next rocket-core tag once fayouz/rocket-core#6 (docker-images.yml) is released.
+    uses: fayouz/rocket-core/.github/workflows/docker-images.yml@v0.3.1
 
   demo:
     name: Demo environment (compose)
+    # Lent : lancé seulement à la demande (Actions › CI › Run workflow).
+    if: github.event_name == 'workflow_dispatch'
     needs: [backend, frontend]
     uses: fayouz/rocket-core/.github/workflows/brick-demo.yml@v0.2.1
     with:
