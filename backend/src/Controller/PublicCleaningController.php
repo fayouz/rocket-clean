@@ -4,6 +4,8 @@ namespace App\Controller;
 
 use App\Cleaning\CleaningLinkSigner;
 use App\Cleaning\CleaningWork;
+use App\Cleaning\LinenBridge;
+use App\Linen\CleaningLinen;
 use App\Cleaning\PublicRateLimiter;
 use App\Entity\CleaningTask;
 use App\Repository\CleaningTaskRepository;
@@ -17,7 +19,7 @@ use Symfony\Component\Routing\Attribute\Route;
 
 /**
  * Secret link of a cleaning, without account (/m/<token> in the interface, /api/public/cleaning/<token> here): the
- * cleaner runs that cleaning's checklist, sets its status and notes, adds photos and sets the place's stock levels (Rocket Place's),
+ * cleaner runs that cleaning's checklist, sets its status and notes, adds photos and sets the place's stock levels (Rocket Place's), reports its linen (kits removed/placed),
  * and nothing else (no other cleaning, place, file or user). Rate-limited per IP, never cached nor indexed. The link
  * expires the day after the cleaning (CleaningLinkSigner::expiresAt), and an administrator can regenerate or revoke it.
  */
@@ -40,27 +42,37 @@ final class PublicCleaningController extends AbstractController
         return $this->view($this->task($token, $request));
     }
 
-    /** JSON, all optional: "status", "notes", "checklist": [{"index": int, "done": bool}]. Planning fields are ignored. */
+    /** JSON, all optional: "status", "notes", "checklist": [{"index": int, "done": bool}], "incident": text. Planning fields are ignored. */
     #[Route('/api/public/cleaning/{token}', name: 'api_public_cleaning_update', methods: ['PATCH'], requirements: ['token' => self::TOKEN])]
     public function update(string $token, Request $request): JsonResponse
     {
         $task = $this->task($token, $request);
         $body = $request->toArray();
-        $this->work->apply($task, array_intersect_key($body, ['status' => 1, 'notes' => 1, 'checklist' => 1]));
+        $this->work->apply($task, array_intersect_key($body, ['status' => 1, 'notes' => 1, 'checklist' => 1, 'incident' => 1]));
         $this->em->flush();
 
         return $this->view($task);
     }
 
-    /** Multipart: "file", "moment" (before|after|damage). */
+    /** Multipart: "file", "moment" (before|after|damage), "area" (optional, photo round). */
     #[Route('/api/public/cleaning/{token}/photos', name: 'api_public_cleaning_photo', methods: ['POST'], requirements: ['token' => self::TOKEN])]
     public function photo(string $token, Request $request): JsonResponse
     {
         $task = $this->task($token, $request);
-        $this->work->addPhoto($task, $request->files->get('file'), (string) $request->request->get('moment', 'after'));
+        $this->work->addPhoto($task, $request->files->get('file'), (string) $request->request->get('moment', 'after'), $request->request->has('area') ? (string) $request->request->get('area') : null);
         $this->em->flush();
 
         return $this->view($task, 201);
+    }
+
+    /** Compte rendu of this cleaning (see CleaningController::report). */
+    #[Route('/api/public/cleaning/{token}/report', name: 'api_public_cleaning_report', methods: ['GET'], requirements: ['token' => self::TOKEN])]
+    public function report(string $token, Request $request): JsonResponse
+    {
+        $response = $this->json($this->work->report($this->task($token, $request)));
+        $response->headers->set('Cache-Control', 'no-store, private');
+
+        return $response;
     }
 
     /** Content of one of this cleaning's photos ("file:<id>" as listed in "photos"). */
@@ -81,6 +93,33 @@ final class PublicCleaningController extends AbstractController
         $this->em->flush();
 
         return $this->view($task);
+    }
+
+    /** The "Linge" step through the secret link: {kits, types, movements} of this cleaning. */
+    #[Route('/api/public/cleaning/{token}/linen', name: 'api_public_cleaning_linen', methods: ['GET'], requirements: ['token' => self::TOKEN])]
+    public function linen(string $token, Request $request, CleaningLinen $linen): JsonResponse
+    {
+        return $this->noStore($this->json($linen->view(LinenBridge::job($this->task($token, $request)))));
+    }
+
+    /** Same body as POST /api/cleanings/{id}/linen ("key" makes an offline replay idempotent). */
+    #[Route('/api/public/cleaning/{token}/linen', name: 'api_public_cleaning_linen_record', methods: ['POST'], requirements: ['token' => self::TOKEN])]
+    public function recordLinen(string $token, Request $request, CleaningLinen $linen): JsonResponse
+    {
+        $job = LinenBridge::job($this->task($token, $request));
+        $result = $linen->record($job, $request->toArray(), null);
+        $this->em->flush();
+
+        return $this->noStore($this->json($result + $linen->view($job), $result['alreadyRecorded'] ? 200 : 201));
+    }
+
+    private function noStore(JsonResponse $response): JsonResponse
+    {
+        $response->headers->set('Cache-Control', 'no-store, private');
+        $response->headers->set('X-Robots-Tag', 'noindex, nofollow');
+        $response->headers->set('Referrer-Policy', 'no-referrer');
+
+        return $response;
     }
 
     private function task(string $token, Request $request): CleaningTask

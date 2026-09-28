@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import type { CleaningTask, StockLine } from '~/types/place'
+import type { CleaningReport, CleaningTask, StockLine } from '~/types/place'
+import type { AssistantActions } from '~/components/CleaningAssistant.vue'
 
 // One cleaning, made for a phone: status buttons, checklist, photos (before/after/damage, straight from the camera,
-// with thumbnails and a lightbox), stock levels of the place and notes. Every change is saved at once and the updated
+// with thumbnails and a lightbox), stock levels of the place, linen (LinenCleaningStep) and notes. Every change is saved at once and the updated
 // task is emitted. With "token" it works through the secret link without account (/api/public/cleaning/<token>);
-// with "manage" (administrator) it also shows the secret link to copy or regenerate.
+// with "manage" (administrator) it also shows the secret link to copy or regenerate. "Assistant vocal" opens the
+// hands-free guide (CleaningAssistant), which acts through the same functions.
 const props = defineProps<{ task: CleaningTask, token?: string, manage?: boolean, startOpen?: boolean }>()
 const emit = defineEmits<{ updated: [task: CleaningTask] }>()
 const api = useApi()
@@ -36,19 +38,50 @@ async function save(path: string, body: Record<string, unknown> | FormData, meth
       : await api<CleaningTask>(`${base.value}${path}`, { method, body }))
   }
   catch (error) {
-    toast.add({ title: 'Non enregistré', description: apiErrorMessage(error), color: 'error' })
+    // Secret link without network: the change is shown at once, kept on the phone and sent when back online.
+    if (props.token && !(body instanceof FormData) && isNetworkError(error)) keepOffline(path, body, method)
+    else toast.add({ title: 'Non enregistré', description: apiErrorMessage(error), color: 'error' })
   }
   finally {
     busy.value = false
   }
 }
 
+// Offline change (public page only: status, checklist point, notes, stock level), all idempotent: they set a value.
+function keepOffline(path: string, body: Record<string, unknown>, method: 'PATCH' | 'POST') {
+  const task = JSON.parse(JSON.stringify(props.task)) as CleaningTask
+  let key = `${task.id}:${path}`
+  if (typeof body.status === 'string') {
+    task.status = body.status as CleaningTask['status']
+    key += ':status'
+  }
+  if (typeof body.notes === 'string') {
+    task.notes = body.notes
+    key += ':notes'
+  }
+  for (const c of (body.checklist ?? []) as { index: number, done: boolean }[]) {
+    if (task.checklist[c.index]) task.checklist[c.index]!.done = c.done
+    key += `:check${c.index}`
+  }
+  if (typeof body.incident === 'string') {
+    task.incidents = [...(task.incidents ?? []), { text: body.incident, at: new Date().toISOString() }]
+    key += `:incident${Date.now()}`
+  }
+  if (typeof body.stockLevelId === 'string') {
+    const line = task.stock?.find(l => l.id === body.stockLevelId)
+    if (line) line.level = body.level as StockLine['level']
+    key += `:stock${body.stockLevelId}`
+  }
+  offlineEnqueue({ kind: 'public', path: `${base.value}${path}`, method, body, key })
+  emit('updated', task)
+}
+
 const setStatus = (status: string) => save('', { status })
 const check = (index: number, done: boolean) => save('', { checklist: [{ index, done }] })
 const saveNotes = () => notes.value !== (props.task.notes ?? '') && save('', { notes: notes.value })
 
-async function setStock(level: { id: string, level: string }, value: string) {
-  await save('/stock', { stockLevelId: level.id, level: value }, 'POST')
+async function setStock(level: { id: string, level: string }, value: string, quantity?: number | null) {
+  await save('/stock', quantity ? { stockLevelId: level.id, level: value, quantity } : { stockLevelId: level.id, level: value }, 'POST')
   const l = loaded.value.find(x => x.id === level.id)
   if (l) l.level = value as StockLine['level']
 }
@@ -85,6 +118,39 @@ async function getLink(regenerate = false) {
   }
 }
 
+// Voice assistant: same actions as the buttons (and the same offline queue on the secret link).
+const assistantOpen = ref(false)
+const assistant: AssistantActions = {
+  check: async (index, done) => {
+    await check(index, done)
+    await nextTick()
+  },
+  setStatus: async (status) => {
+    await setStatus(status)
+    await nextTick()
+  },
+  setStock: (line, level, quantity) => setStock(line, level, quantity),
+  incident: text => save('', { incident: text }),
+  photo: async (file, moment, area) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('moment', moment)
+    if (area) form.append('area', area)
+    await save('/photos', form, 'POST')
+    await nextTick()
+  },
+  report: async () => {
+    try {
+      return props.token
+        ? await $fetch<CleaningReport>(`${base.value}/report`, { baseURL: config.public.apiBase as string, headers: { Accept: 'application/json' } })
+        : await api<CleaningReport>(`${base.value}/report`)
+    }
+    catch {
+      return null
+    }
+  },
+}
+
 async function upload(event: Event, moment: string) {
   const input = event.target as HTMLInputElement
   for (const file of Array.from(input.files ?? [])) {
@@ -105,11 +171,16 @@ async function upload(event: Event, moment: string) {
         <p class="text-sm text-muted">
           {{ task.label }} · {{ dayFr(task.scheduledAt) }} {{ hourFr(task.scheduledAt) }}<span v-if="task.dueAt"> → {{ hourFr(task.dueAt) }}</span>
         </p>
-        <p class="text-xs text-muted">{{ task.assignee?.name ?? 'Non attribué' }}<span v-if="task.checklist.length"> · {{ doneCount }}/{{ task.checklist.length }} points</span><span v-if="task.photos.length"> · {{ task.photos.length }} photo(s)</span></p>
+        <p class="text-xs text-muted">{{ task.assignee?.name ?? 'Non attribué' }}<span v-if="task.checklist.length"> · {{ doneCount }}/{{ task.checklist.length }} points</span><span v-if="task.photos.length"> · {{ task.photos.length }} photo(s)</span><span v-if="task.incidents?.length" class="text-error"> · {{ task.incidents.length }} problème(s)</span></p>
+        <p v-if="!token && (task.origin !== 'clean' || task.cost !== null)" class="text-xs text-muted">
+          <span v-if="task.origin !== 'clean'">Créé par {{ task.originApp ?? CLEANING_ORIGIN_LABEL[task.origin] }}</span><span v-if="task.origin !== 'clean' && task.cost !== null"> · </span><span v-if="task.cost !== null">{{ euros(task.cost) }}</span>
+        </p>
       </div>
       <div class="flex shrink-0 flex-col items-end gap-1">
         <UBadge :color="CLEANING_STATUS_COLOR[task.status]" variant="subtle">{{ CLEANING_STATUS_LABEL[task.status] }}</UBadge>
+        <UBadge v-if="task.type" :color="CLEANING_TYPE_COLOR[task.type]" variant="outline">{{ CLEANING_TYPE_LABEL[task.type] }}</UBadge>
         <UBadge v-if="task.late" color="error" variant="solid">En retard</UBadge>
+        <UBadge v-if="task.conflict" color="warning" variant="solid" icon="i-lucide-calendar-x">Pendant un séjour</UBadge>
       </div>
     </button>
 
@@ -119,6 +190,9 @@ async function upload(event: Event, moment: string) {
         <UButton v-if="task.status !== 'done'" block size="lg" color="success" icon="i-lucide-check" label="Terminé" :loading="busy" @click="setStatus('done')" />
         <UButton v-else block size="lg" variant="soft" icon="i-lucide-rotate-ccw" label="Rouvrir" :loading="busy" @click="setStatus('in_progress')" />
       </div>
+
+      <UButton block size="lg" variant="soft" icon="i-lucide-audio-lines" label="Assistant vocal" @click="assistantOpen = true" />
+      <CleaningAssistant v-model:open="assistantOpen" :task="task" :levels="levels" :actions="assistant" />
 
       <section v-if="task.checklist.length">
         <h3 class="mb-2 text-sm font-semibold">Checklist</h3>
@@ -167,6 +241,17 @@ async function upload(event: Event, moment: string) {
         </div>
         <p v-if="!levels.length" class="text-xs text-muted">Aucun article suivi pour ce lieu.</p>
       </section>
+
+      <LinenCleaningStep :cleaning-id="task.id" :token="token" />
+
+      <section v-if="task.incidents?.length">
+        <h3 class="mb-2 text-sm font-semibold text-error">Problèmes signalés</h3>
+        <ul class="list-inside list-disc text-sm">
+          <li v-for="(inc, i) in task.incidents" :key="i">{{ inc.text }} <span class="text-xs text-muted">{{ whenFr(inc.at) }}</span></li>
+        </ul>
+      </section>
+
+      <UButton v-if="task.hasReport && !token" block variant="link" icon="i-lucide-file-text" label="Voir le compte rendu" :to="`/cleanings/${task.id}/report`" />
 
       <section>
         <h3 class="mb-2 text-sm font-semibold">Notes</h3>

@@ -31,6 +31,12 @@ class CleaningTask
     public const STATUSES = [self::TODO, self::IN_PROGRESS, self::DONE, self::CANCELLED];
     public const PHOTO_MOMENTS = ['before', 'after', 'damage'];
     public const MAX_PHOTOS = 30;
+    public const RENTAL = 'rental';
+    public const PERSONAL = 'personal';
+    public const MAINTENANCE = 'maintenance';
+    public const TYPES = [self::RENTAL, self::PERSONAL, self::MAINTENANCE];
+    /** Who created the task: the host (Rocket Host), a PMS, Rocket Place, a user of Rocket Clean, or a recurrence. */
+    public const ORIGINS = ['host', 'pms', 'place', 'clean', 'recurrence'];
 
     #[ORM\Id]
     #[ORM\Column(type: UuidType::NAME, unique: true)]
@@ -44,6 +50,25 @@ class CleaningTask
 
     #[ORM\Column(length: 120)]
     private string $label;
+
+    /** rental (turnover between stays), personal (the owner's own use) or maintenance. */
+    #[ORM\Column(length: 16, options: ['default' => 'personal'])]
+    private string $type = self::PERSONAL;
+
+    #[ORM\Column(length: 16, options: ['default' => 'clean'])]
+    private string $origin = 'clean';
+
+    /** Name of the application that created the task (app token), which may keep editing it. */
+    #[ORM\Column(length: 120, nullable: true)]
+    private ?string $originApp = null;
+
+    /** Cost in cents (optional; defaults to the place's cost for the type). */
+    #[ORM\Column(nullable: true)]
+    private ?int $cost = null;
+
+    /** A personal/maintenance task overlapping an occupied period of the place (OccupiedPeriod). */
+    #[ORM\Column(options: ['default' => false])]
+    private bool $conflict = false;
 
     #[ORM\Column(type: Types::DATETIMETZ_IMMUTABLE)]
     private \DateTimeImmutable $scheduledAt;
@@ -64,11 +89,19 @@ class CleaningTask
     #[ORM\Column(type: Types::TEXT, nullable: true)]
     private ?string $notes = null;
 
-    /** @var list<array{label: string, done: bool}> */
+    /** @var list<array{label: string, done: bool, synonyms?: list<string>, photo?: bool, area?: string}> */
     #[ORM\Column(type: Types::JSON)]
     private array $checklist = [];
 
-    /** @var list<array{fileId: string, name: string, moment: string, at: string}> */
+    /** Problems reported during the cleaning (by voice or by hand): @var list<array{text: string, at: string}> */
+    #[ORM\Column(type: Types::JSON)]
+    private array $incidents = [];
+
+    /** Compte rendu, written when the cleaning is completed (CleaningReport); null before. @var array<string, mixed>|null */
+    #[ORM\Column(type: Types::JSON, nullable: true)]
+    private ?array $report = null;
+
+    /** @var list<array{fileId: string, name: string, moment: string, at: string, area?: string}> */
     #[ORM\Column(type: Types::JSON)]
     private array $photos = [];
 
@@ -88,7 +121,7 @@ class CleaningTask
 
     use TrackedTrait;
 
-    /** @param list<string> $checklist */
+    /** @param list<string|array{label: string, synonyms?: list<string>, photo?: bool, area?: string}> $checklist template lines */
     public function __construct(string $placeId, string $placeName, string $label, \DateTimeImmutable $scheduledAt, array $checklist = [], ?string $externalRef = null)
     {
         $this->id = Uuid::v7();
@@ -96,9 +129,23 @@ class CleaningTask
         $this->placeName = $placeName;
         $this->label = $label;
         $this->scheduledAt = $scheduledAt;
-        $this->checklist = array_map(static fn (string $l) => ['label' => $l, 'done' => false], array_values($checklist));
+        $this->checklist = array_map(static fn (string|array $l) => \is_string($l) ? ['label' => $l, 'done' => false] : ['label' => $l['label'], 'done' => false] + array_intersect_key($l, ['synonyms' => 1, 'photo' => 1, 'area' => 1]), array_values($checklist));
         $this->externalRef = $externalRef;
+        $this->type = null !== $externalRef && str_starts_with($externalRef, 'booking:') ? self::RENTAL : self::PERSONAL;
     }
+
+    public function getType(): string { return $this->type; }
+    public function setType(string $type): static { $this->type = $type; return $this; }
+    public function getOrigin(): string { return $this->origin; }
+    public function getOriginApp(): ?string { return $this->originApp; }
+    public function setOrigin(string $origin, ?string $app = null): static { $this->origin = $origin; $this->originApp = $app; return $this; }
+    public function getCost(): ?int { return $this->cost; }
+    public function setCost(?int $cost): static { $this->cost = $cost; return $this; }
+    public function hasConflict(): bool { return $this->conflict; }
+    public function setConflict(bool $conflict): static { $this->conflict = $conflict; return $this; }
+
+    /** End of the window used for overlaps: dueAt, else scheduledAt. */
+    public function getEndsAt(): \DateTimeImmutable { return $this->dueAt ?? $this->scheduledAt; }
 
     public function getId(): Uuid { return $this->id; }
     public function getPlaceId(): string { return $this->placeId; }
@@ -120,6 +167,25 @@ class CleaningTask
     public function getChecklist(): array { return $this->checklist; }
     /** @return list<array{fileId: string, name: string, moment: string, at: string}> */
     public function getPhotos(): array { return $this->photos; }
+
+    /** @return list<array{text: string, at: string}> */
+    public function getIncidents(): array { return $this->incidents; }
+
+    public function addIncident(string $text, \DateTimeImmutable $at): static
+    {
+        $this->incidents[] = ['text' => $text, 'at' => $at->format(\DATE_ATOM)];
+
+        return $this;
+    }
+
+    /** @return list<array{stockLevelId: string, item: string, level: string, at: string, quantity?: float}> */
+    public function getStockReports(): array { return $this->stockReports; }
+    public function getStartedAt(): ?\DateTimeImmutable { return $this->startedAt; }
+    public function getCompletedAt(): ?\DateTimeImmutable { return $this->completedAt; }
+    /** @return array<string, mixed>|null */
+    public function getReport(): ?array { return $this->report; }
+    /** @param array<string, mixed>|null $report */
+    public function setReport(?array $report): static { $this->report = $report; return $this; }
 
     public function getLinkSalt(): ?string { return $this->linkSalt; }
 
@@ -149,16 +215,16 @@ class CleaningTask
         return $this;
     }
 
-    public function addPhoto(string $fileId, string $name, string $moment, \DateTimeImmutable $at): static
+    public function addPhoto(string $fileId, string $name, string $moment, \DateTimeImmutable $at, ?string $area = null): static
     {
-        $this->photos[] = ['fileId' => $fileId, 'name' => $name, 'moment' => $moment, 'at' => $at->format(\DATE_ATOM)];
+        $this->photos[] = ['fileId' => $fileId, 'name' => $name, 'moment' => $moment, 'at' => $at->format(\DATE_ATOM)] + (null === $area ? [] : ['area' => $area]);
 
         return $this;
     }
 
-    public function addStockReport(string $stockLevelId, string $item, string $level, \DateTimeImmutable $at): static
+    public function addStockReport(string $stockLevelId, string $item, string $level, \DateTimeImmutable $at, ?float $quantity = null): static
     {
-        $this->stockReports[] = ['stockLevelId' => $stockLevelId, 'item' => $item, 'level' => $level, 'at' => $at->format(\DATE_ATOM)];
+        $this->stockReports[] = ['stockLevelId' => $stockLevelId, 'item' => $item, 'level' => $level, 'at' => $at->format(\DATE_ATOM)] + (null === $quantity ? [] : ['quantity' => $quantity]);
 
         return $this;
     }
@@ -174,12 +240,14 @@ class CleaningTask
         return [
             'id' => $this->id->toRfc4122(),
             'placeId' => $this->placeId, 'placeName' => $this->placeName,
-            'label' => $this->label,
+            'label' => $this->label, 'type' => $this->type, 'origin' => $this->origin, 'originApp' => $this->originApp,
+            'cost' => $this->cost, 'conflict' => $this->conflict,
             'scheduledAt' => $this->scheduledAt->format(\DATE_ATOM), 'dueAt' => $this->dueAt?->format(\DATE_ATOM),
             'status' => $this->status, 'late' => $this->isLate($now),
             'assignee' => null === $this->assignee ? null : ['id' => $this->assignee->getId()->toRfc4122(), 'email' => $this->assignee->getEmail(), 'name' => $this->assignee->getDisplayName()],
             'externalRef' => $this->externalRef, 'notes' => $this->notes,
             'checklist' => $this->checklist, 'photos' => $this->photos, 'stockReports' => $this->stockReports,
+            'incidents' => $this->incidents, 'hasReport' => null !== $this->report,
             'startedAt' => $this->startedAt?->format(\DATE_ATOM), 'completedAt' => $this->completedAt?->format(\DATE_ATOM),
         ];
     }

@@ -5,14 +5,15 @@ namespace App\Cleaning;
 use App\Cloud\CloudClient;
 use App\Entity\CleaningTask;
 use App\Place\PlaceDirectory;
+use App\Stock\CleaningStock;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
  * Carrying a cleaning out (status, checklist, notes, photos, stock levels), shared by the signed-in API
  * (CleaningController) and the secret link without account (PublicCleaningController). Callers check who may act.
- * Photos go straight to Rocket Cloud, in the place's folder (Site::$cloudFolderId); stock levels are Rocket Place's
- * (PlaceDirectory). Callers flush.
+ * Photos go straight to Rocket Cloud, in the place's folder (Site::$cloudFolderId); stock levels are Rocket Stock's, else Rocket
+ * Place's (App\Stock\CleaningStock). Callers flush.
  */
 final class CleaningWork
 {
@@ -23,12 +24,28 @@ final class CleaningWork
     public function __construct(
         private readonly CloudClient $cloud,
         private readonly PlaceDirectory $places,
+        private readonly CleaningStock $stock,
+        private readonly CleaningNotifier $notifier,
     ) {
     }
 
-    /** @param array<string, mixed> $body "status", "notes", "checklist": [{"index": int, "done": bool}] (other keys ignored) */
+    /**
+     * @param array<string, mixed> $body "status", "notes", "checklist": [{"index": int, "done": bool}], "incident": text (other keys ignored).
+     * Completing the cleaning writes its compte rendu (CleaningReport) and e-mails it when the "report" notification is on.
+     */
     public function apply(CleaningTask $task, array $body): void
     {
+        $wasDone = CleaningTask::DONE === $task->getStatus();
+        if (isset($body['incident'])) {
+            $text = trim((string) $body['incident']);
+            if ('' === $text) {
+                throw new HttpException(422, 'Problème vide.');
+            }
+            if (\count($task->getIncidents()) >= 50) {
+                throw new HttpException(422, 'Trop de problèmes signalés pour ce ménage.');
+            }
+            $task->addIncident(mb_substr($text, 0, 1000), new \DateTimeImmutable());
+        }
         if (\array_key_exists('status', $body)) {
             if (!\in_array($body['status'], CleaningTask::STATUSES, true)) {
                 throw new HttpException(422, 'Statut invalide ('.implode(', ', CleaningTask::STATUSES).').');
@@ -46,10 +63,22 @@ final class CleaningWork
                 throw new HttpException(422, $e->getMessage());
             }
         }
+        if (CleaningTask::DONE === $task->getStatus() && !$wasDone) {
+            $task->setReport(CleaningReport::build($task));
+            $this->notifier->report($task);
+        } elseif (CleaningTask::DONE !== $task->getStatus() && $wasDone) {
+            $task->setReport(null);
+        }
+    }
+
+    /** @return array<string, mixed> the stored compte rendu, else the current state (cleaning not completed yet, "draft": true) */
+    public function report(CleaningTask $task): array
+    {
+        return $task->getReport() ?? CleaningReport::build($task) + ['draft' => true];
     }
 
     /** Uploads a photo (jpeg/png/webp/heic, 15 Mo max) into the place's Rocket Cloud folder and records it on the cleaning. */
-    public function addPhoto(CleaningTask $task, mixed $file, string $moment): void
+    public function addPhoto(CleaningTask $task, mixed $file, string $moment, ?string $area = null): void
     {
         if (!$file instanceof UploadedFile || !$file->isValid()) {
             throw new HttpException(400, 'Aucune photo envoyée.');
@@ -72,7 +101,8 @@ final class CleaningWork
         $folderId = $this->cloud->ensureFolder($site->getId(), $site->getCloudFolderId() ?? '', $site->getName());
         $site->setCloudFolderId($folderId);
         $item = $this->cloud->upload($folderId, $renamed);
-        $task->addPhoto('file:'.$item['id'], $item['name'], $moment, $now);
+        $area = null === $area ? '' : mb_substr(trim($area), 0, 80);
+        $task->addPhoto('file:'.$item['id'], $item['name'], $moment, $now, '' === $area ? null : $area);
     }
 
     /** Content of one of the cleaning's own photos (never any other file of the place). */
@@ -84,19 +114,20 @@ final class CleaningWork
         return $this->cloud->content(substr($fileId, 5));
     }
 
-    /** @param array<string, mixed> $body {"stockLevelId": uuid, "level": ok|low|empty} */
+    /** @param array<string, mixed> $body {"stockLevelId": uuid, "level": ok|low|empty, "quantity"?: number consumed (Rocket Stock, default 1)} */
     public function setStock(CleaningTask $task, array $body): void
     {
         if (!\in_array($body['level'] ?? null, self::STOCK_LEVELS, true)) {
             throw new HttpException(422, 'Niveau invalide ('.implode(', ', self::STOCK_LEVELS).').');
         }
-        $level = $this->places->setStock($task->getPlaceId(), (string) ($body['stockLevelId'] ?? ''), $body['level']);
-        $task->addStockReport($level['id'], $level['name'], $level['level'], new \DateTimeImmutable());
+        $quantity = isset($body['quantity']) && is_numeric($body['quantity']) ? (float) $body['quantity'] : null;
+        $level = $this->stock->report($task, (string) ($body['stockLevelId'] ?? ''), $body['level'], $quantity);
+        $task->addStockReport($level['id'], $level['name'], $level['level'], new \DateTimeImmutable(), null !== $quantity && $quantity > 0 ? $quantity : null);
     }
 
     /** @return list<array{id: string, name: string, level: string}> stock levels of the cleaning's place */
     public function stockView(CleaningTask $task): array
     {
-        return $this->places->stock($task->getPlaceId());
+        return $this->stock->levels($task->getPlaceId());
     }
 }

@@ -7,11 +7,13 @@ use Rocket\Core\Settings\Settings;
 /**
  * E-mail notifications of cleanings, each can be turned off by an administrator (rocket-core setting
  * "cleaning_notifications"): "assignment" (to the assignee, with the secret link), "late" (daily, to the
- * administrators), "summary" (end-of-day summary, to the administrators). All on by default.
+ * administrators), "summary" (end-of-day summary, to the administrators), "report" (compte rendu of each completed cleaning, to the administrators). All on by default but "report".
  */
 final class CleaningSettings
 {
-    public const KEYS = ['assignment', 'late', 'summary'];
+    public const KEYS = ['assignment', 'late', 'summary', 'report'];
+    /** Off unless turned on: the compte rendu of each completed cleaning, to the administrators. */
+    private const OFF_BY_DEFAULT = ['report'];
     private const NAME = 'cleaning_notifications';
 
     public function __construct(private readonly Settings $settings)
@@ -24,7 +26,7 @@ final class CleaningSettings
         $stored = $this->settings->get(self::NAME, []);
         $out = [];
         foreach (self::KEYS as $key) {
-            $out[$key] = \is_array($stored) && \array_key_exists($key, $stored) ? (bool) $stored[$key] : true;
+            $out[$key] = \is_array($stored) && \array_key_exists($key, $stored) ? (bool) $stored[$key] : !\in_array($key, self::OFF_BY_DEFAULT, true);
         }
 
         return $out;

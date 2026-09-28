@@ -79,7 +79,8 @@ final class CleaningLinkTest extends WebTestCase
         // Another cleaning's link does not open this one; a forged token fails.
         $otherToken = substr($this->api('GET', "/api/cleanings/$other/link", null, $this->admin)['path'], 3);
         self::assertSame($other, $this->api('GET', "/api/public/cleaning/$otherToken")['id']);
-        $this->api('GET', '/api/public/cleaning/'.substr($token, 0, 42).('A' === $token[42] ? 'B' : 'A'));
+        // (flip a middle character: the last one also carries base64 padding bits, which may decode the same)
+        $this->api('GET', '/api/public/cleaning/'.substr($token, 0, 30).('A' === $token[30] ? 'B' : 'A').substr($token, 31));
         $this->assertStatus(404);
 
         // Regenerate: the old link stops working. Revoke: no link at all.
@@ -133,7 +134,7 @@ final class CleaningLinkTest extends WebTestCase
 
         $this->api('PUT', '/api/cleaning-settings', ['assignment' => false], $this->alice);
         $this->assertStatus(403);
-        self::assertSame(['assignment' => false, 'late' => true, 'summary' => true], $this->api('PUT', '/api/cleaning-settings', ['assignment' => false, 'bogus' => 1], $this->admin));
+        self::assertSame(['assignment' => false, 'late' => true, 'summary' => true, 'report' => false], $this->api('PUT', '/api/cleaning-settings', ['assignment' => false, 'bogus' => 1], $this->admin));
         $this->cleaning(['assigneeEmail' => 'alice@example.org']);
         self::assertCount(1, $mailer->sent());
     }

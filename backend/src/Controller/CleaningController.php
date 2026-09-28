@@ -4,15 +4,19 @@ namespace App\Controller;
 
 use App\Cleaning\CleaningLinkSigner;
 use App\Cleaning\CleaningNotifier;
+use App\Cleaning\CleaningPlanner;
 use App\Cleaning\CleaningSettings;
 use App\Cleaning\CleaningWork;
 use App\Entity\CleaningChecklistItem;
 use App\Entity\CleaningTask;
+use App\Entity\OccupiedPeriod;
 use App\Repository\CleaningChecklistItemRepository;
 use App\Repository\CleaningTaskRepository;
+use App\Stock\CleaningStock;
 use App\Place\PlaceDirectory;
 use Doctrine\ORM\EntityManagerInterface;
 use Rocket\Core\Entity\User;
+use Rocket\Core\Security\ApplicationUser;
 use Symfony\Bridge\Doctrine\Attribute\MapEntity;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -39,11 +43,12 @@ final class CleaningController extends AbstractController
         private readonly CleaningNotifier $notifier,
         private readonly CleaningSettings $settings,
         private readonly PlaceDirectory $places,
+        private readonly CleaningPlanner $planner,
         private readonly EntityManagerInterface $em,
     ) {
     }
 
-    /** Query: date=YYYY-MM-DD (default today, "all" for no date filter), mine=1, place=<place id>. Late open tasks are included with a date. */
+    /** Query: date=YYYY-MM-DD (default today, "all" for no date filter), mine=1, place=<place id>, type=rental|personal|maintenance. Late open tasks are included with a date. */
     #[Route('/api/cleanings', name: 'api_cleanings', methods: ['GET'])]
     public function list(Request $request): JsonResponse
     {
@@ -58,21 +63,48 @@ final class CleaningController extends AbstractController
         }
         $now = new \DateTimeImmutable();
 
-        return $this->json(array_map(static fn (CleaningTask $t) => $t->toArray($now), $this->tasks->search($from, $to, '' === $placeId ? null : $placeId, $assignee, null !== $from)));
+        return $this->json(array_map(static fn (CleaningTask $t) => $t->toArray($now), $this->tasks->search($from, $to, '' === $placeId ? null : $placeId, $assignee, null !== $from, $this->typeFilter($request))));
     }
 
     /** Cleanings of a place (known locally; the place itself is not looked up, so a PMS can read them cheaply). */
     #[Route('/api/places/{placeId}/cleanings', name: 'api_place_cleanings', methods: ['GET'], requirements: ['placeId' => Requirement::UUID])]
-    public function listForPlace(string $placeId): JsonResponse
+    public function listForPlace(string $placeId, Request $request): JsonResponse
     {
         $now = new \DateTimeImmutable();
 
-        return $this->json(array_map(static fn (CleaningTask $t) => $t->toArray($now), $this->tasks->search(null, null, $placeId)));
+        return $this->json(array_map(static fn (CleaningTask $t) => $t->toArray($now), $this->tasks->search(null, null, $placeId, null, false, $this->typeFilter($request))));
+    }
+
+    /**
+     * Cost export: cleanings (not cancelled) with their cost and a total, e.g. the rental ones for the host's bilan.
+     * Query: type, place, from/to (YYYY-MM-DD, on scheduledAt, "to" inclusive).
+     */
+    #[Route('/api/cleanings/export', name: 'api_cleanings_export', methods: ['GET'])]
+    #[IsGranted('CLEAN_MANAGE')]
+    public function export(Request $request): JsonResponse
+    {
+        $from = $this->dayParam($request, 'from');
+        $to = $this->dayParam($request, 'to')?->modify('+1 day');
+        $placeId = (string) $request->query->get('place', '');
+        $rows = [];
+        $total = 0;
+        foreach ($this->tasks->search(null, null, '' === $placeId ? null : $placeId, null, false, $this->typeFilter($request)) as $t) {
+            if (CleaningTask::CANCELLED === $t->getStatus() || (null !== $from && $t->getScheduledAt() < $from) || (null !== $to && $t->getScheduledAt() >= $to)) {
+                continue;
+            }
+            $total += $t->getCost() ?? 0;
+            $rows[] = ['id' => $t->getId()->toRfc4122(), 'placeId' => $t->getPlaceId(), 'placeName' => $t->getPlaceName(), 'type' => $t->getType(), 'label' => $t->getLabel(),
+                'scheduledAt' => $t->getScheduledAt()->format(\DATE_ATOM), 'status' => $t->getStatus(), 'cost' => $t->getCost(), 'externalRef' => $t->getExternalRef()];
+        }
+
+        return $this->json(['currency' => 'EUR', 'unit' => 'cents', 'total' => $total, 'count' => \count($rows), 'items' => $rows]);
     }
 
     /**
      * JSON {"scheduledAt": ISO-8601, "dueAt"?: ISO-8601|null, "label"?: string, "assigneeEmail"?|"assigneeId"?: string,
-     * "notes"?: string, "externalRef"?: string}. Find-or-create by externalRef: 200 with the existing task (unchanged).
+     * "notes"?: string, "externalRef"?: string, "type"?: rental|personal|maintenance (default: rental for an externalRef
+     * "booking:…", else personal), "cost"?: cents, "origin"?: host|pms|place (applications only; default pms)}.
+     * Find-or-create by externalRef: 200 with the existing task (unchanged).
      */
     #[Route('/api/places/{placeId}/cleanings', name: 'api_place_cleanings_create', methods: ['POST'], requirements: ['placeId' => Requirement::UUID])]
     #[IsGranted('CLEAN_MANAGE')]
@@ -85,8 +117,17 @@ final class CleaningController extends AbstractController
         }
         $site = $this->places->get($placeId);
         $label = trim((string) ($body['label'] ?? '')) ?: 'Ménage';
-        $task = new CleaningTask($site->getId(), $site->getName(), mb_substr($label, 0, 120), $this->date($body['scheduledAt'] ?? null) ?? throw new HttpException(422, 'scheduledAt requis.'), $this->checklistView($placeId), $externalRef);
+        $scheduledAt = $this->date($body['scheduledAt'] ?? null) ?? throw new HttpException(422, 'scheduledAt requis.');
+        $type = isset($body['type']) ? $this->type($body['type']) : (null !== $externalRef && str_starts_with($externalRef, 'booking:') ? CleaningTask::RENTAL : CleaningTask::PERSONAL);
+        $task = (new CleaningTask($site->getId(), $site->getName(), mb_substr($label, 0, 120), $scheduledAt, $this->planner->checklistFor($placeId, $type), $externalRef))->setType($type);
+        $user = $this->getUser();
+        if ($user instanceof ApplicationUser) {
+            $origin = \in_array($body['origin'] ?? null, ['host', 'pms', 'place'], true) ? $body['origin'] : 'pms';
+            $task->setOrigin($origin, mb_substr($user->getApplication()->getName(), 0, 120));
+        }
+        $task->setCost(\array_key_exists('cost', $body) ? $this->cost($body['cost']) : $this->planner->defaultCost($placeId, $task->getType()));
         $this->applyPlanning($task, $body);
+        $this->planner->refreshConflict($task);
         $this->em->persist($task);
         $this->em->flush();
         $this->notifyAssignee($task, null);
@@ -101,17 +142,24 @@ final class CleaningController extends AbstractController
     }
 
     /**
-     * JSON, all optional. Anyone doing the cleaning: "status", "notes", "checklist": [{"index": int, "done": bool}].
+     * JSON, all optional. Anyone doing the cleaning: "status", "notes", "checklist": [{"index": int, "done": bool}], "incident": text.
      * Managers only: "label", "scheduledAt", "dueAt", "assigneeEmail"/"assigneeId" (null to unassign).
      */
     #[Route('/api/cleanings/{id}', name: 'api_cleaning_update', methods: ['PATCH'], requirements: ['id' => Requirement::UUID])]
     public function update(#[MapEntity] CleaningTask $task, Request $request): JsonResponse
     {
         $this->assertCanWork($task);
+        $this->assertAppOwns($task);
         $body = $request->toArray();
         $previousAssignee = $task->getAssignee();
-        if (array_intersect(['label', 'scheduledAt', 'dueAt', 'assigneeEmail', 'assigneeId'], array_keys($body))) {
+        if (array_intersect(['label', 'scheduledAt', 'dueAt', 'assigneeEmail', 'assigneeId', 'type', 'cost'], array_keys($body))) {
             $this->denyAccessUnlessGranted('CLEAN_MANAGE');
+            if (isset($body['type'])) {
+                $task->setType($this->type($body['type']));
+            }
+            if (\array_key_exists('cost', $body)) {
+                $task->setCost($this->cost($body['cost']));
+            }
             if (isset($body['label']) && '' !== trim((string) $body['label'])) {
                 $task->setLabel(mb_substr(trim((string) $body['label']), 0, 120));
             }
@@ -121,6 +169,7 @@ final class CleaningController extends AbstractController
             $this->applyPlanning($task, $body);
         }
         $this->work->apply($task, $body);
+        $this->planner->refreshConflict($task);
         $this->em->flush();
         $this->notifyAssignee($task, $previousAssignee);
 
@@ -131,6 +180,7 @@ final class CleaningController extends AbstractController
     #[IsGranted('CLEAN_MANAGE')]
     public function delete(#[MapEntity] CleaningTask $task): JsonResponse
     {
+        $this->assertAppOwns($task);
         $this->em->remove($task);
         $this->em->flush();
 
@@ -142,10 +192,19 @@ final class CleaningController extends AbstractController
     public function photo(#[MapEntity] CleaningTask $task, Request $request): JsonResponse
     {
         $this->assertCanWork($task);
-        $this->work->addPhoto($task, $request->files->get('file'), (string) $request->request->get('moment', 'after'));
+        $this->work->addPhoto($task, $request->files->get('file'), (string) $request->request->get('moment', 'after'), $request->request->has('area') ? (string) $request->request->get('area') : null);
         $this->em->flush();
 
         return $this->json($task->toArray(), 201);
+    }
+
+    /** Compte rendu of the cleaning (written on completion; before that, the current state with "draft": true). */
+    #[Route('/api/cleanings/{id}/report', name: 'api_cleaning_report', methods: ['GET'], requirements: ['id' => Requirement::UUID])]
+    public function report(#[MapEntity] CleaningTask $task): JsonResponse
+    {
+        $this->assertCanWork($task);
+
+        return $this->json($this->work->report($task));
     }
 
     /** JSON {"stockLevelId": uuid, "level": ok|low|empty}: sets the place's stock level and records it on the cleaning. */
@@ -221,16 +280,83 @@ final class CleaningController extends AbstractController
     }
 
     #[Route('/api/places/{placeId}/cleaning-checklist', name: 'api_place_cleaning_checklist', methods: ['GET'], requirements: ['placeId' => Requirement::UUID])]
-    public function checklist(string $placeId): JsonResponse
+    public function checklist(string $placeId, Request $request): JsonResponse
     {
-        return $this->json($this->checklistView($placeId));
+        $type = $this->templateType($request);
+
+        return $this->json($request->query->getBoolean('details') ? $this->planner->checklistLines($placeId, $type) : $this->planner->checklist($placeId, $type));
     }
 
-    /** Stock levels of a place ({"id", "name", "level"}, Rocket Place's; empty standalone). */
-    #[Route('/api/places/{placeId}/stock', name: 'api_place_stock', methods: ['GET'], requirements: ['placeId' => Requirement::UUID])]
-    public function placeStock(string $placeId): JsonResponse
+    /** Occupied periods of a place [{"from", "until", "externalRef"}]. */
+    #[Route('/api/places/{placeId}/occupancy', name: 'api_place_occupancy', methods: ['GET'], requirements: ['placeId' => Requirement::UUID])]
+    public function occupancy(string $placeId): JsonResponse
     {
-        return $this->json($this->places->stock($placeId));
+        return $this->json(array_map(static fn (OccupiedPeriod $p) => $p->toArray(), $this->em->getRepository(OccupiedPeriod::class)->findBy(['placeId' => $placeId], ['from' => 'ASC'])));
+    }
+
+    /**
+     * JSON [{"from": ISO-8601, "until": ISO-8601, "externalRef"?: string}, ...] (or {"periods": [...]}): replaces the
+     * occupied periods of the place (pushed by Rocket Host or a PMS), then flags the open personal/maintenance
+     * cleanings of the place that overlap one ("conflict").
+     */
+    #[Route('/api/places/{placeId}/occupancy', name: 'api_place_occupancy_update', methods: ['PUT'], requirements: ['placeId' => Requirement::UUID])]
+    #[IsGranted('CLEAN_MANAGE')]
+    public function updateOccupancy(string $placeId, Request $request): JsonResponse
+    {
+        $body = $request->toArray();
+        $list = array_is_list($body) ? $body : (array) ($body['periods'] ?? []);
+        if (\count($list) > 1000) {
+            throw new HttpException(422, '1000 périodes au plus.');
+        }
+        $periods = [];
+        foreach ($list as $p) {
+            $from = $this->date(\is_array($p) ? ($p['from'] ?? null) : null);
+            $until = $this->date(\is_array($p) ? ($p['until'] ?? null) : null);
+            if (null === $from || null === $until || $until <= $from) {
+                throw new HttpException(422, 'Chaque période demande from < until (ISO-8601).');
+            }
+            $ref = null === ($p['externalRef'] ?? null) ? null : mb_substr((string) $p['externalRef'], 0, 120);
+            $periods[] = new OccupiedPeriod($placeId, $from, $until, $ref);
+        }
+        foreach ($this->em->getRepository(OccupiedPeriod::class)->findBy(['placeId' => $placeId]) as $old) {
+            $this->em->remove($old);
+        }
+        array_walk($periods, fn (OccupiedPeriod $p) => $this->em->persist($p));
+        $this->em->flush();
+        foreach ($this->tasks->search(null, null, $placeId) as $task) {
+            $this->planner->refreshConflict($task);
+        }
+        $this->em->flush();
+
+        return $this->json(array_map(static fn (OccupiedPeriod $p) => $p->toArray(), $periods));
+    }
+
+    /** Default cost (cents) per type of cleaning at a place {"rental": int|null, "personal": …, "maintenance": …}. */
+    #[Route('/api/places/{placeId}/cleaning-costs', name: 'api_place_cleaning_costs', methods: ['GET'], requirements: ['placeId' => Requirement::UUID])]
+    public function costs(string $placeId): JsonResponse
+    {
+        return $this->json($this->planner->costs($placeId));
+    }
+
+    #[Route('/api/places/{placeId}/cleaning-costs', name: 'api_place_cleaning_costs_update', methods: ['PUT'], requirements: ['placeId' => Requirement::UUID])]
+    #[IsGranted('CLEAN_MANAGE')]
+    public function updateCosts(string $placeId, Request $request): JsonResponse
+    {
+        try {
+            $this->planner->setCosts($placeId, $request->toArray());
+        } catch (\InvalidArgumentException $e) {
+            throw new HttpException(422, $e->getMessage());
+        }
+        $this->em->flush();
+
+        return $this->json($this->planner->costs($placeId));
+    }
+
+    /** Stock levels of a place ({"id", "name", "level"}: Rocket Stock's, else Rocket Place's; empty standalone). */
+    #[Route('/api/places/{placeId}/stock', name: 'api_place_stock', methods: ['GET'], requirements: ['placeId' => Requirement::UUID])]
+    public function placeStock(string $placeId, CleaningStock $stock): JsonResponse
+    {
+        return $this->json($stock->levels($placeId));
     }
 
     /** Content of one of a cleaning's photos ("file:<id>" as listed in "photos"). */
@@ -240,35 +366,40 @@ final class CleaningController extends AbstractController
         return new Response($this->work->photoContent($task, $fileId), 200, ['Content-Type' => 'application/octet-stream', 'Cache-Control' => 'no-store, private']);
     }
 
-    /** JSON {"items": [string, ...]}: replaces the template (existing tasks keep their own copy). */
+    /**
+     * JSON {"items": [string | {"label", "synonyms"?: [string], "photo"?: bool, "area"?: string}, ...]}, query type (default
+     * rental): replaces the template of that type (existing tasks keep their own copy). Synonyms help the voice assistant
+     * ("sdb" for "Salle de bain"); "photo" asks for a photo of the area in the end-of-cleaning photo round.
+     */
     #[Route('/api/places/{placeId}/cleaning-checklist', name: 'api_place_cleaning_checklist_update', methods: ['PUT'], requirements: ['placeId' => Requirement::UUID])]
     #[IsGranted('CLEAN_MANAGE')]
     public function updateChecklist(string $placeId, Request $request): JsonResponse
     {
-        $labels = array_values(array_filter(array_map(static fn ($l) => mb_substr(trim((string) $l), 0, 160), (array) ($request->toArray()['items'] ?? [])), static fn (string $l) => '' !== $l));
-        if (\count($labels) > 100) {
+        $lines = [];
+        foreach ((array) ($request->toArray()['items'] ?? []) as $item) {
+            $item = \is_array($item) ? $item : ['label' => $item];
+            $label = mb_substr(trim((string) ($item['label'] ?? '')), 0, 160);
+            if ('' !== $label) {
+                $lines[] = [$label, array_map('strval', array_filter((array) ($item['synonyms'] ?? []), 'is_scalar')), (bool) ($item['photo'] ?? false), isset($item['area']) && \is_scalar($item['area']) ? (string) $item['area'] : null];
+            }
+        }
+        if (\count($lines) > 100) {
             throw new HttpException(422, '100 points au plus.');
         }
+        $type = $this->templateType($request);
         $this->places->get($placeId);
-        foreach ($this->checklistItems->findBy(['placeId' => $placeId]) as $item) {
+        foreach ($this->checklistItems->findBy(['placeId' => $placeId, 'type' => $type]) as $item) {
             $this->em->remove($item);
         }
         $this->em->flush();
-        foreach ($labels as $i => $label) {
-            $this->em->persist(new CleaningChecklistItem($placeId, $label, $i));
+        foreach ($lines as $i => [$label, $synonyms, $photo, $area]) {
+            $this->em->persist((new CleaningChecklistItem($placeId, $label, $i, $type))->describe($synonyms, $photo, $area));
         }
         $this->em->flush();
 
-        return $this->json($this->checklistView($placeId));
+        return $this->json($request->query->getBoolean('details') ? $this->planner->checklistLines($placeId, $type) : $this->planner->checklist($placeId, $type));
     }
 
-    /** @return list<string> */
-    private function checklistView(string $placeId): array
-    {
-        return array_map(static fn (CleaningChecklistItem $i) => $i->getLabel(), $this->checklistItems->findBy(['placeId' => $placeId], ['position' => 'ASC']));
-    }
-
-    /** @param array<string, mixed> $body */
     private function applyPlanning(CleaningTask $task, array $body): void
     {
         if (\array_key_exists('dueAt', $body)) {
@@ -307,6 +438,51 @@ final class CleaningController extends AbstractController
             $this->notifier->assigned($task, $actor instanceof User ? $actor : null);
             $this->em->flush();
         }
+    }
+
+    /** An application may change or delete the cleanings it created, and those created by people, not another app's. */
+    private function assertAppOwns(CleaningTask $task): void
+    {
+        $user = $this->getUser();
+        if ($user instanceof ApplicationUser && null !== $task->getOriginApp() && $task->getOriginApp() !== mb_substr($user->getApplication()->getName(), 0, 120)) {
+            throw new HttpException(403, 'Ce ménage a été créé par une autre application.');
+        }
+    }
+
+    private function type(mixed $value): string
+    {
+        return \in_array($value, CleaningTask::TYPES, true) ? $value : throw new HttpException(422, 'Type invalide ('.implode(', ', CleaningTask::TYPES).').');
+    }
+
+    private function typeFilter(Request $request): ?string
+    {
+        $type = (string) $request->query->get('type', '');
+
+        return '' === $type ? null : $this->type($type);
+    }
+
+    private function templateType(Request $request): string
+    {
+        return $this->typeFilter($request) ?? CleaningTask::RENTAL;
+    }
+
+    private function cost(mixed $value): ?int
+    {
+        try {
+            return CleaningPlanner::cents($value);
+        } catch (\InvalidArgumentException $e) {
+            throw new HttpException(422, $e->getMessage());
+        }
+    }
+
+    private function dayParam(Request $request, string $name): ?\DateTimeImmutable
+    {
+        $value = (string) $request->query->get($name, '');
+        if ('' === $value) {
+            return null;
+        }
+
+        return \DateTimeImmutable::createFromFormat('!Y-m-d', $value) ?: throw new HttpException(422, "$name attendu au format AAAA-MM-JJ.");
     }
 
     /** A non-manager may only work on cleanings assigned to them, or not assigned at all. */
