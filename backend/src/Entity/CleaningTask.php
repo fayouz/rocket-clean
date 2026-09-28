@@ -89,11 +89,19 @@ class CleaningTask
     #[ORM\Column(type: Types::TEXT, nullable: true)]
     private ?string $notes = null;
 
-    /** @var list<array{label: string, done: bool}> */
+    /** @var list<array{label: string, done: bool, synonyms?: list<string>, photo?: bool, area?: string}> */
     #[ORM\Column(type: Types::JSON)]
     private array $checklist = [];
 
-    /** @var list<array{fileId: string, name: string, moment: string, at: string}> */
+    /** Problems reported during the cleaning (by voice or by hand): @var list<array{text: string, at: string}> */
+    #[ORM\Column(type: Types::JSON)]
+    private array $incidents = [];
+
+    /** Compte rendu, written when the cleaning is completed (CleaningReport); null before. @var array<string, mixed>|null */
+    #[ORM\Column(type: Types::JSON, nullable: true)]
+    private ?array $report = null;
+
+    /** @var list<array{fileId: string, name: string, moment: string, at: string, area?: string}> */
     #[ORM\Column(type: Types::JSON)]
     private array $photos = [];
 
@@ -113,7 +121,7 @@ class CleaningTask
 
     use TrackedTrait;
 
-    /** @param list<string> $checklist */
+    /** @param list<string|array{label: string, synonyms?: list<string>, photo?: bool, area?: string}> $checklist template lines */
     public function __construct(string $placeId, string $placeName, string $label, \DateTimeImmutable $scheduledAt, array $checklist = [], ?string $externalRef = null)
     {
         $this->id = Uuid::v7();
@@ -121,7 +129,7 @@ class CleaningTask
         $this->placeName = $placeName;
         $this->label = $label;
         $this->scheduledAt = $scheduledAt;
-        $this->checklist = array_map(static fn (string $l) => ['label' => $l, 'done' => false], array_values($checklist));
+        $this->checklist = array_map(static fn (string|array $l) => \is_string($l) ? ['label' => $l, 'done' => false] : ['label' => $l['label'], 'done' => false] + array_intersect_key($l, ['synonyms' => 1, 'photo' => 1, 'area' => 1]), array_values($checklist));
         $this->externalRef = $externalRef;
         $this->type = null !== $externalRef && str_starts_with($externalRef, 'booking:') ? self::RENTAL : self::PERSONAL;
     }
@@ -160,6 +168,25 @@ class CleaningTask
     /** @return list<array{fileId: string, name: string, moment: string, at: string}> */
     public function getPhotos(): array { return $this->photos; }
 
+    /** @return list<array{text: string, at: string}> */
+    public function getIncidents(): array { return $this->incidents; }
+
+    public function addIncident(string $text, \DateTimeImmutable $at): static
+    {
+        $this->incidents[] = ['text' => $text, 'at' => $at->format(\DATE_ATOM)];
+
+        return $this;
+    }
+
+    /** @return list<array{stockLevelId: string, item: string, level: string, at: string, quantity?: float}> */
+    public function getStockReports(): array { return $this->stockReports; }
+    public function getStartedAt(): ?\DateTimeImmutable { return $this->startedAt; }
+    public function getCompletedAt(): ?\DateTimeImmutable { return $this->completedAt; }
+    /** @return array<string, mixed>|null */
+    public function getReport(): ?array { return $this->report; }
+    /** @param array<string, mixed>|null $report */
+    public function setReport(?array $report): static { $this->report = $report; return $this; }
+
     public function getLinkSalt(): ?string { return $this->linkSalt; }
 
     /** New salt: a new secret link, the previous one stops working. */
@@ -188,16 +215,16 @@ class CleaningTask
         return $this;
     }
 
-    public function addPhoto(string $fileId, string $name, string $moment, \DateTimeImmutable $at): static
+    public function addPhoto(string $fileId, string $name, string $moment, \DateTimeImmutable $at, ?string $area = null): static
     {
-        $this->photos[] = ['fileId' => $fileId, 'name' => $name, 'moment' => $moment, 'at' => $at->format(\DATE_ATOM)];
+        $this->photos[] = ['fileId' => $fileId, 'name' => $name, 'moment' => $moment, 'at' => $at->format(\DATE_ATOM)] + (null === $area ? [] : ['area' => $area]);
 
         return $this;
     }
 
-    public function addStockReport(string $stockLevelId, string $item, string $level, \DateTimeImmutable $at): static
+    public function addStockReport(string $stockLevelId, string $item, string $level, \DateTimeImmutable $at, ?float $quantity = null): static
     {
-        $this->stockReports[] = ['stockLevelId' => $stockLevelId, 'item' => $item, 'level' => $level, 'at' => $at->format(\DATE_ATOM)];
+        $this->stockReports[] = ['stockLevelId' => $stockLevelId, 'item' => $item, 'level' => $level, 'at' => $at->format(\DATE_ATOM)] + (null === $quantity ? [] : ['quantity' => $quantity]);
 
         return $this;
     }
@@ -220,6 +247,7 @@ class CleaningTask
             'assignee' => null === $this->assignee ? null : ['id' => $this->assignee->getId()->toRfc4122(), 'email' => $this->assignee->getEmail(), 'name' => $this->assignee->getDisplayName()],
             'externalRef' => $this->externalRef, 'notes' => $this->notes,
             'checklist' => $this->checklist, 'photos' => $this->photos, 'stockReports' => $this->stockReports,
+            'incidents' => $this->incidents, 'hasReport' => null !== $this->report,
             'startedAt' => $this->startedAt?->format(\DATE_ATOM), 'completedAt' => $this->completedAt?->format(\DATE_ATOM),
         ];
     }
