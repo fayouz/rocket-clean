@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "75e136ca531baf27d767b3600d086f6b",
+    "content-hash": "e4b755348d40537a8bffd576a0805e5b",
     "packages": [
         {
             "name": "api-platform/doctrine-common",
@@ -3898,16 +3898,16 @@
         },
         {
             "name": "rocket/core-bundle",
-            "version": "v0.2.1",
+            "version": "v0.3.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/fayouz/rocket-core.git",
-                "reference": "d56a0533d0ed6856dcd8e0cedcf206b77eedc995"
+                "reference": "d3ae3b65a9b7a6756d399d17c0e115ce3036d72c"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/fayouz/rocket-core/zipball/d56a0533d0ed6856dcd8e0cedcf206b77eedc995",
-                "reference": "d56a0533d0ed6856dcd8e0cedcf206b77eedc995",
+                "url": "https://api.github.com/repos/fayouz/rocket-core/zipball/d3ae3b65a9b7a6756d399d17c0e115ce3036d72c",
+                "reference": "d3ae3b65a9b7a6756d399d17c0e115ce3036d72c",
                 "shasum": ""
             },
             "require": {
@@ -3968,10 +3968,10 @@
             ],
             "description": "The platform shared by the Rocket applications: accounts (local, LDAP, OpenID Connect), external applications and impersonation, dashboard, health checks, updates, standalone and suite modes.",
             "support": {
-                "source": "https://github.com/fayouz/rocket-core/tree/v0.2.1",
+                "source": "https://github.com/fayouz/rocket-core/tree/v0.3.1",
                 "issues": "https://github.com/fayouz/rocket-core/issues"
             },
-            "time": "2026-09-26T01:28:22+00:00"
+            "time": "2026-09-28T20:15:42+00:00"
         },
         {
             "name": "stof/doctrine-extensions-bundle",
