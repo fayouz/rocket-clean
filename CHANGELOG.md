@@ -2,7 +2,7 @@
 
 Toutes les évolutions notables de Rocket Clean. Format [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions [SemVer](https://semver.org/lang/fr/).
 
-## [Non publié]
+## [0.2.1] - 2026-09-28
 
 ### Modifié
 - CI : images Docker publiées sur ghcr.io uniquement sur tag `v*` et lancement manuel, multi-arch amd64/arm64, SBOM et provenance (workflow `docker-images.yml` de rocket-core) ; image API sur FrankenPHP Alpine sans Composer, `HEALTHCHECK` API et front ; exemple `compose.prod.yaml`.
