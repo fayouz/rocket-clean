@@ -2,6 +2,7 @@
 
 namespace App\Tests\Unit;
 
+use App\Secrets\IntegrationSecrets;
 use App\Entity\Site;
 use App\Place\PlaceClient;
 use App\Place\PlaceDirectory;
@@ -40,7 +41,7 @@ final class PlaceDirectoryTest extends TestCase
         $sites = $this->createStub(SiteRepository::class);
         $sites->method('find')->willReturn($cached);
 
-        return new PlaceDirectory(new PlaceClient($http, $url, 'rpl_secret'), $sites, $this->createStub(EntityManagerInterface::class));
+        return new PlaceDirectory(new PlaceClient($http, $url, IntegrationSecrets::fixed(['rocket.place.token' => 'rpl_secret'])), $sites, $this->createStub(EntityManagerInterface::class));
     }
 
     public function testRemotePlacesAndStock(): void

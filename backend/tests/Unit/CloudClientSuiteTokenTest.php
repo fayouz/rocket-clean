@@ -2,6 +2,7 @@
 
 namespace App\Tests\Unit;
 
+use App\Secrets\IntegrationSecrets;
 use App\Cloud\CloudClient;
 use App\Cloud\DemoCloud;
 use PHPUnit\Framework\TestCase;
@@ -11,7 +12,7 @@ use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
-/** Clean → Rocket Cloud: token of Rocket Auth in suite mode, static ROCKET_CLOUD_TOKEN otherwise. No network. */
+/** Clean → Rocket Cloud: token of Rocket Auth in suite mode, static secret rocket.cloud.token otherwise. No network. */
 final class CloudClientSuiteTokenTest extends TestCase
 {
     /** @var list<string> */
@@ -29,7 +30,7 @@ final class CloudClientSuiteTokenTest extends TestCase
             return new MockResponse('[]', ['http_code' => $status]);
         });
 
-        return new CloudClient($http, new DemoCloud(sys_get_temp_dir().'/clean-demo-cloud-'.bin2hex(random_bytes(4)).'.json'), 'http://cloud.test', $token, $tokens);
+        return new CloudClient($http, new DemoCloud(sys_get_temp_dir().'/clean-demo-cloud-'.bin2hex(random_bytes(4)).'.json'), 'http://cloud.test', IntegrationSecrets::fixed(['rocket.cloud.token' => $token]), $tokens);
     }
 
     private function provider(bool $available, ?string $token = 'suite-token', bool $mock = false): ServiceTokenProvider

@@ -14,7 +14,7 @@ Le socle commun (comptes, LDAP, SSO / Rocket Auth, applications externes, tablea
 
 Un ménage référence un lieu par son **identifiant** (`placeId`, UUID) et garde son nom en cache (`placeName`) : Rocket Clean ne possède aucun lieu.
 
-- **Avec Rocket Place** (`ROCKET_PLACE_URL` + `ROCKET_PLACE_TOKEN` `rpl_…`, ou jeton Rocket Auth en mode suite) : lieux et stock sont ceux de Place (`/api/places`, `/api/stock-levels`), lus par `App\Place\PlaceClient`.
+- **Avec Rocket Place** (`ROCKET_PLACE_URL` + secret `rocket.place.token` `rpl_…`, ou jeton Rocket Auth en mode suite) : lieux et stock sont ceux de Place (`/api/places`, `/api/stock-levels`), lus par `App\Place\PlaceClient`.
 - **Autonome** (sans `ROCKET_PLACE_URL`) : lieux locaux (entité `Site`, nom seulement) créés dans Rocket Clean, sans stock.
 
 Les photos vont directement dans Rocket Cloud, un dossier par lieu (sous « Rocket Clean »).
@@ -58,12 +58,29 @@ Depuis un lien secret `/m/<jeton>`, l’application installée rouvre ce ménage
 
 | Variable | Rôle |
 |---|---|
-| `ROCKET_PLACE_URL` / `ROCKET_PLACE_TOKEN` | Rocket Place (lieux, stock si pas de Rocket Stock), jeton d'application `rpl_…`. Vide : lieux locaux. |
-| `ROCKET_STOCK_URL` / `ROCKET_STOCK_TOKEN` | Rocket Stock (stock ; relevés des ménages = consommation + état), jeton `rst_…`. Vide : stock de Rocket Place, sinon aucun. |
-| `ROCKET_CLOUD_URL` / `ROCKET_CLOUD_TOKEN` | Rocket Cloud (photos), jeton `rca_…`. Vide : démo. |
-| `ROCKET_MAILER_URL`, `ROCKET_MAILER_TOKEN`, `ROCKET_MAILER_MAILBOX`, `ROCKET_MAILER_SENDER` | Rocket Mailer (e-mails d'attribution, retard, bilan). Vide : démo (`var/demo-mailer-<env>.json`). |
+| `ROCKET_PLACE_URL` (jeton : secret `rocket.place.token`) | Rocket Place (lieux, stock si pas de Rocket Stock), jeton d'application `rpl_…`. Vide : lieux locaux. |
+| `ROCKET_STOCK_URL` (jeton : secret `rocket.stock.token`) | Rocket Stock (stock ; relevés des ménages = consommation + état), jeton `rst_…`. Vide : stock de Rocket Place, sinon aucun. |
+| `ROCKET_CLOUD_URL` (jeton : secret `rocket.cloud.token`) | Rocket Cloud (photos), jeton `rca_…`. Vide : démo. |
+| `ROCKET_MAILER_URL`, secret `rocket.mailer.token`, `ROCKET_MAILER_MAILBOX`, `ROCKET_MAILER_SENDER` | Rocket Mailer (e-mails d'attribution, retard, bilan). Vide : démo (`var/demo-mailer-<env>.json`). |
 | `CLEANING_RECURRENCE_DAYS` | Jours d'avance des ménages générés par les récurrences (défaut 14). |
 | `ROCKET_AUTH_URL`, `ROCKET_AUTH_INTERNAL_URL`, `ROCKET_AUTH_CLIENT_ID` (`rocket-clean`), `ROCKET_AUTH_CLIENT_SECRET`, `ROCKET_AUTH_ADMIN_GROUP`, `ROCKET_PUBLIC_URL`, `ROCKET_INTERNAL_URL` | Mode suite. En suite, Place et Cloud sont appelés avec un jeton Rocket Auth (audiences `rocket-place`, `rocket-cloud`), les jetons statiques restent le repli. |
+
+## Secrets des intégrations (coffre)
+
+Les jetons et clés des intégrations sont gardés **chiffrés en base** dans le coffre de rocket-core (Administration → **Secrets**), plus dans le `.env`. Le code les lit par `App\Secrets\IntegrationSecrets` ; l'API ne renvoie jamais leur valeur (aperçu masqué `••••1234`). Seule la clé maîtresse `ROCKET_SECRETS_KEY` (`php bin/console rocket:secrets:generate-key`) reste dans l'environnement : la sauvegarder hors de la base.
+
+| Ancienne variable | Secret du coffre |
+|---|---|
+| `ROCKET_PLACE_TOKEN` | `rocket.place.token` |
+| `ROCKET_STOCK_TOKEN` | `rocket.stock.token` |
+| `ROCKET_CLOUD_TOKEN` | `rocket.cloud.token` |
+| `ROCKET_MAILER_TOKEN` | `rocket.mailer.token` |
+
+Migration d'une instance existante :
+
+1. `php bin/console rocket:secrets:generate-key` → `ROCKET_SECRETS_KEY` dans `.env.local` (ou l'environnement du conteneur) ; `php bin/console doctrine:migrations:migrate`.
+2. `php bin/console app:secrets:migrate-env --dry-run` puis `php bin/console app:secrets:migrate-env` : importe les variables ci-dessus sous leur nom de secret (idempotent, `--overwrite` pour remplacer).
+3. Retirer ces variables du `.env.local` / de l'environnement. Pendant la transition, une variable encore présente sert de repli (avertissement « deprecated » dans les journaux).
 
 ## API (pour un PMS)
 

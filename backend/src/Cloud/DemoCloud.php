@@ -3,7 +3,7 @@
 namespace App\Cloud;
 
 /**
- * Rocket Cloud used whenever ROCKET_CLOUD_URL / ROCKET_CLOUD_TOKEN are not configured: keeps the "Documents" tab
+ * Rocket Cloud used whenever ROCKET_CLOUD_URL / secret rocket.cloud.token are not configured: keeps the "Documents" tab
  * (and functional tests) fully offline, one fictitious folder per place. State is kept in a small JSON file
  * (var/demo-cloud.json) rather than in memory: like a real HTTP call to Rocket Cloud, it must survive across
  * requests/workers (the app itself has no long-lived process holding this).

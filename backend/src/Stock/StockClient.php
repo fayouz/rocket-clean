@@ -2,6 +2,7 @@
 
 namespace App\Stock;
 
+use App\Secrets\IntegrationSecrets;
 use Rocket\Core\Oidc\OidcException;
 use Rocket\Core\Suite\ServiceTokenProvider;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -10,7 +11,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 /**
  * Client of Rocket Stock (rocket-apps/rocket-stock), the owner of the stock of the places (same paths as the former
  * stock of Rocket Place: /api/places/{placeId}/stock, PATCH /api/stock-levels/{id}, plus POST /api/movements).
- * ROCKET_STOCK_URL + ROCKET_STOCK_TOKEN (rst_…); suite mode: Rocket Auth token for the audience "rocket-stock",
+ * ROCKET_STOCK_URL + secret rocket.stock.token (rst_…); suite mode: Rocket Auth token for the audience "rocket-stock",
  * the static token stays the fallback. Not configured: App\Stock\CleaningStock falls back to Rocket Place, then none.
  * Responses streamed and capped, 4xx relayed, token refused / 5xx / unreachable → 502 with a French message.
  */
@@ -23,7 +24,7 @@ final class StockClient
     public function __construct(
         private readonly HttpClientInterface $http,
         private readonly string $stockUrl,
-        private readonly string $stockToken,
+        private readonly IntegrationSecrets $secrets,
         private readonly ?ServiceTokenProvider $serviceTokens = null,
     ) {
     }
@@ -31,10 +32,10 @@ final class StockClient
     /** Whether Rocket Stock is configured (else stock reports go to Rocket Place, or nowhere). */
     public function isConfigured(): bool
     {
-        return '' !== trim($this->stockUrl) && ('' !== trim($this->stockToken) || $this->usesSuiteTokens());
+        return '' !== trim($this->stockUrl) && ('' !== trim($this->secrets->get('rocket.stock.token')) || $this->usesSuiteTokens());
     }
 
-    /** Whether calls use tokens of Rocket Auth (suite mode) rather than the static ROCKET_STOCK_TOKEN. */
+    /** Whether calls use tokens of Rocket Auth (suite mode) rather than the static token rocket.stock.token. */
     public function usesSuiteTokens(): bool
     {
         return null !== $this->serviceTokens && $this->serviceTokens->isAvailable();
@@ -47,13 +48,13 @@ final class StockClient
             try {
                 return $this->serviceTokens->tokenForClient(self::AUDIENCE);
             } catch (OidcException $e) {
-                if ('' === trim($this->stockToken)) {
+                if ('' === trim($this->secrets->get('rocket.stock.token'))) {
                     throw new HttpException(502, 'Rocket Auth ne délivre pas de jeton pour Rocket Stock : '.$e->getMessage());
                 }
             }
         }
 
-        return $this->stockToken;
+        return $this->secrets->get('rocket.stock.token');
     }
 
     /**
@@ -107,7 +108,7 @@ final class StockClient
                 $this->serviceTokens->forget(self::AUDIENCE);
                 throw new HttpException(502, 'Jeton Rocket Auth refusé par Rocket Stock (client rocket-clean lié à une application ?).');
             }
-            throw new HttpException(502, 'Jeton Rocket Stock refusé (ROCKET_STOCK_TOKEN).');
+            throw new HttpException(502, 'Jeton Rocket Stock refusé (secret rocket.stock.token).');
         }
         if (403 === $status) {
             throw new HttpException(502, 'Rocket Stock refuse cette action à l’application Rocket Clean.');

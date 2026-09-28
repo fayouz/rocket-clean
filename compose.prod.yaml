@@ -12,6 +12,8 @@ x-api-env: &api-env
   MESSENGER_TRANSPORT_DSN: doctrine://default
   JWT_PASSPHRASE: ${JWT_PASSPHRASE:?JWT_PASSPHRASE is required}
   SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:-}
+  # Master key of the secrets vault (integration tokens, Administration → Secrets): rocket:secrets:generate-key.
+  ROCKET_SECRETS_KEY: ${ROCKET_SECRETS_KEY:-}
   SETUP_TOKEN: ${SETUP_TOKEN:-}
   CORS_ALLOW_ORIGIN: ${CORS_ALLOW_ORIGIN:?CORS_ALLOW_ORIGIN is required, e.g. ^https://clean\.example\.org$$}
   UPDATE_REPOSITORY: fayouz/rocket-clean
