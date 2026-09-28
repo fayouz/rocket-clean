@@ -36,11 +36,38 @@ async function save(path: string, body: Record<string, unknown> | FormData, meth
       : await api<CleaningTask>(`${base.value}${path}`, { method, body }))
   }
   catch (error) {
-    toast.add({ title: 'Non enregistré', description: apiErrorMessage(error), color: 'error' })
+    // Secret link without network: the change is shown at once, kept on the phone and sent when back online.
+    if (props.token && !(body instanceof FormData) && isNetworkError(error)) keepOffline(path, body, method)
+    else toast.add({ title: 'Non enregistré', description: apiErrorMessage(error), color: 'error' })
   }
   finally {
     busy.value = false
   }
+}
+
+// Offline change (public page only: status, checklist point, notes, stock level), all idempotent: they set a value.
+function keepOffline(path: string, body: Record<string, unknown>, method: 'PATCH' | 'POST') {
+  const task = JSON.parse(JSON.stringify(props.task)) as CleaningTask
+  let key = `${task.id}:${path}`
+  if (typeof body.status === 'string') {
+    task.status = body.status as CleaningTask['status']
+    key += ':status'
+  }
+  if (typeof body.notes === 'string') {
+    task.notes = body.notes
+    key += ':notes'
+  }
+  for (const c of (body.checklist ?? []) as { index: number, done: boolean }[]) {
+    if (task.checklist[c.index]) task.checklist[c.index]!.done = c.done
+    key += `:check${c.index}`
+  }
+  if (typeof body.stockLevelId === 'string') {
+    const line = task.stock?.find(l => l.id === body.stockLevelId)
+    if (line) line.level = body.level as StockLine['level']
+    key += `:stock${body.stockLevelId}`
+  }
+  offlineEnqueue({ kind: 'public', path: `${base.value}${path}`, method, body, key })
+  emit('updated', task)
 }
 
 const setStatus = (status: string) => save('', { status })

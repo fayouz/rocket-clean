@@ -39,6 +39,8 @@ const shift = (days: number) => {
           <UDashboardSidebarCollapse />
         </template>
         <template #right>
+          <OfflineBadge />
+          <PwaInstallButton />
           <UButton icon="i-lucide-refresh-cw" variant="ghost" @click="refresh()" />
         </template>
       </UDashboardNavbar>
