@@ -5,14 +5,15 @@ namespace App\Cleaning;
 use App\Cloud\CloudClient;
 use App\Entity\CleaningTask;
 use App\Place\PlaceDirectory;
+use App\Stock\CleaningStock;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
  * Carrying a cleaning out (status, checklist, notes, photos, stock levels), shared by the signed-in API
  * (CleaningController) and the secret link without account (PublicCleaningController). Callers check who may act.
- * Photos go straight to Rocket Cloud, in the place's folder (Site::$cloudFolderId); stock levels are Rocket Place's
- * (PlaceDirectory). Callers flush.
+ * Photos go straight to Rocket Cloud, in the place's folder (Site::$cloudFolderId); stock levels are Rocket Stock's, else Rocket
+ * Place's (App\Stock\CleaningStock). Callers flush.
  */
 final class CleaningWork
 {
@@ -23,6 +24,7 @@ final class CleaningWork
     public function __construct(
         private readonly CloudClient $cloud,
         private readonly PlaceDirectory $places,
+        private readonly CleaningStock $stock,
     ) {
     }
 
@@ -84,19 +86,20 @@ final class CleaningWork
         return $this->cloud->content(substr($fileId, 5));
     }
 
-    /** @param array<string, mixed> $body {"stockLevelId": uuid, "level": ok|low|empty} */
+    /** @param array<string, mixed> $body {"stockLevelId": uuid, "level": ok|low|empty, "quantity"?: number consumed (Rocket Stock, default 1)} */
     public function setStock(CleaningTask $task, array $body): void
     {
         if (!\in_array($body['level'] ?? null, self::STOCK_LEVELS, true)) {
             throw new HttpException(422, 'Niveau invalide ('.implode(', ', self::STOCK_LEVELS).').');
         }
-        $level = $this->places->setStock($task->getPlaceId(), (string) ($body['stockLevelId'] ?? ''), $body['level']);
+        $quantity = isset($body['quantity']) && is_numeric($body['quantity']) ? (float) $body['quantity'] : null;
+        $level = $this->stock->report($task, (string) ($body['stockLevelId'] ?? ''), $body['level'], $quantity);
         $task->addStockReport($level['id'], $level['name'], $level['level'], new \DateTimeImmutable());
     }
 
     /** @return list<array{id: string, name: string, level: string}> stock levels of the cleaning's place */
     public function stockView(CleaningTask $task): array
     {
-        return $this->places->stock($task->getPlaceId());
+        return $this->stock->levels($task->getPlaceId());
     }
 }
