@@ -45,6 +45,15 @@ php bin/phpunit
 cd frontend && npm install && NUXT_PUBLIC_API_BASE=http://localhost:9000 npm run dev -- --port 4000
 ```
 
+## Installer sur téléphone
+
+Application web installable (PWA), sans store :
+
+- **Android (Chrome)** : bouton **Installer l’application** (*Ménages du jour*, page d’un ménage) ou menu ⋮ › *Installer l’application*.
+- **iPhone (Safari)** : **Partager** › **Sur l’écran d’accueil**.
+
+Depuis un lien secret `/m/<jeton>`, l’application installée rouvre ce ménage sans compte ; hors ligne, la page garde ses dernières données (badge **Hors ligne**) et met en file les coches de checklist, statut, stock et notes jusqu’au retour du réseau. Service worker actif en production seulement (`NUXT_PUBLIC_PWA=false` pour le couper). Icônes : `node frontend/scripts/pwa-icons.mjs`. Détails : `docs/content/2.usage/7.telephone.md`.
+
 ## Configuration
 
 | Variable | Rôle |
