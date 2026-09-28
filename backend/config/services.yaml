@@ -1,0 +1,32 @@
+parameters:
+    env(UPDATE_REPOSITORY): 'fayouz/rocket-clean'
+    env(ROCKET_PLACE_URL): ''
+    env(ROCKET_PLACE_TOKEN): ''
+    env(ROCKET_CLOUD_URL): ''
+    env(ROCKET_CLOUD_TOKEN): ''
+    env(ROCKET_MAILER_URL): ''
+    env(ROCKET_MAILER_TOKEN): ''
+    env(ROCKET_MAILER_MAILBOX): ''
+    env(ROCKET_MAILER_SENDER): ''
+
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+        bind:
+            $placeUrl: '%env(ROCKET_PLACE_URL)%'
+            $placeToken: '%env(ROCKET_PLACE_TOKEN)%'
+            $cloudUrl: '%env(ROCKET_CLOUD_URL)%'
+            $cloudToken: '%env(ROCKET_CLOUD_TOKEN)%'
+            $mailerUrl: '%env(ROCKET_MAILER_URL)%'
+            $mailerToken: '%env(ROCKET_MAILER_TOKEN)%'
+            $mailerMailbox: '%env(ROCKET_MAILER_MAILBOX)%'
+            $demoMailerPath: '%kernel.project_dir%/var/demo-mailer-%kernel.environment%.json'
+            $storagePath: '%kernel.project_dir%/var/demo-cloud.json'
+
+    App\:
+        resource: '../src/'
+
+when@test:
+    services:
+        App\Tests\Support\HttpMock: ~

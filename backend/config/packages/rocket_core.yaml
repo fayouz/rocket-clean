@@ -1,0 +1,4 @@
+rocket_core:
+    app_name: Rocket Clean
+    app_id: clean
+    token_prefix: rcl_
