@@ -19,5 +19,7 @@ ARG APP_VERSION=dev
 ENV NUXT_PUBLIC_APP_VERSION=${APP_VERSION}
 USER node
 EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD wget -q -O /dev/null http://127.0.0.1:3000/login || exit 1
 # Runtime configuration: NUXT_PUBLIC_API_BASE (browser -> API), NUXT_API_INTERNAL_BASE (server -> API).
 CMD ["node", ".output/server/index.mjs"]
