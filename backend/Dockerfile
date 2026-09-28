@@ -4,7 +4,7 @@
 FROM dunglas/frankenphp:1-php8.4-alpine AS base
 
 WORKDIR /app
-RUN install-php-extensions pdo_pgsql intl opcache apcu ldap zip \
+RUN install-php-extensions pdo_pgsql intl opcache apcu ldap zip gd \
     && cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 COPY --link docker/php.ini $PHP_INI_DIR/conf.d/zz-app.ini
 COPY --link docker/Caddyfile /etc/rocket-clean/Caddyfile
