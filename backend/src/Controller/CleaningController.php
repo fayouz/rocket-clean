@@ -12,6 +12,7 @@ use App\Entity\CleaningTask;
 use App\Entity\OccupiedPeriod;
 use App\Repository\CleaningChecklistItemRepository;
 use App\Repository\CleaningTaskRepository;
+use App\Stock\CleaningStock;
 use App\Place\PlaceDirectory;
 use Doctrine\ORM\EntityManagerInterface;
 use Rocket\Core\Entity\User;
@@ -340,11 +341,11 @@ final class CleaningController extends AbstractController
         return $this->json($this->planner->costs($placeId));
     }
 
-    /** Stock levels of a place ({"id", "name", "level"}, Rocket Place's; empty standalone). */
+    /** Stock levels of a place ({"id", "name", "level"}: Rocket Stock's, else Rocket Place's; empty standalone). */
     #[Route('/api/places/{placeId}/stock', name: 'api_place_stock', methods: ['GET'], requirements: ['placeId' => Requirement::UUID])]
-    public function placeStock(string $placeId): JsonResponse
+    public function placeStock(string $placeId, CleaningStock $stock): JsonResponse
     {
-        return $this->json($this->places->stock($placeId));
+        return $this->json($stock->levels($placeId));
     }
 
     /** Content of one of a cleaning's photos ("file:<id>" as listed in "photos"). */

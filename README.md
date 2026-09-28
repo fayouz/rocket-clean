@@ -49,7 +49,8 @@ cd frontend && npm install && NUXT_PUBLIC_API_BASE=http://localhost:9000 npm run
 
 | Variable | Rôle |
 |---|---|
-| `ROCKET_PLACE_URL` / `ROCKET_PLACE_TOKEN` | Rocket Place (lieux, stock), jeton d'application `rpl_…`. Vide : lieux locaux. |
+| `ROCKET_PLACE_URL` / `ROCKET_PLACE_TOKEN` | Rocket Place (lieux, stock si pas de Rocket Stock), jeton d'application `rpl_…`. Vide : lieux locaux. |
+| `ROCKET_STOCK_URL` / `ROCKET_STOCK_TOKEN` | Rocket Stock (stock ; relevés des ménages = consommation + état), jeton `rst_…`. Vide : stock de Rocket Place, sinon aucun. |
 | `ROCKET_CLOUD_URL` / `ROCKET_CLOUD_TOKEN` | Rocket Cloud (photos), jeton `rca_…`. Vide : démo. |
 | `ROCKET_MAILER_URL`, `ROCKET_MAILER_TOKEN`, `ROCKET_MAILER_MAILBOX`, `ROCKET_MAILER_SENDER` | Rocket Mailer (e-mails d'attribution, retard, bilan). Vide : démo (`var/demo-mailer-<env>.json`). |
 | `CLEANING_RECURRENCE_DAYS` | Jours d'avance des ménages générés par les récurrences (défaut 14). |
