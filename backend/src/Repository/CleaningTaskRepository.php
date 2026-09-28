@@ -20,7 +20,7 @@ class CleaningTaskRepository extends ServiceEntityRepository
      *
      * @return list<CleaningTask>
      */
-    public function search(?\DateTimeImmutable $from, ?\DateTimeImmutable $to, ?string $placeId = null, ?User $assignee = null, bool $withLate = false): array
+    public function search(?\DateTimeImmutable $from, ?\DateTimeImmutable $to, ?string $placeId = null, ?User $assignee = null, bool $withLate = false, ?string $type = null): array
     {
         $qb = $this->createQueryBuilder('t')->orderBy('t.scheduledAt', 'ASC');
         if (null !== $from && null !== $to) {
@@ -34,6 +34,9 @@ class CleaningTaskRepository extends ServiceEntityRepository
         }
         if (null !== $placeId) {
             $qb->andWhere('t.placeId = :place')->setParameter('place', $placeId);
+        }
+        if (null !== $type) {
+            $qb->andWhere('t.type = :type')->setParameter('type', $type);
         }
         if (null !== $assignee) {
             $qb->andWhere('t.assignee = :assignee')->setParameter('assignee', $assignee);

@@ -106,10 +106,15 @@ async function upload(event: Event, moment: string) {
           {{ task.label }} · {{ dayFr(task.scheduledAt) }} {{ hourFr(task.scheduledAt) }}<span v-if="task.dueAt"> → {{ hourFr(task.dueAt) }}</span>
         </p>
         <p class="text-xs text-muted">{{ task.assignee?.name ?? 'Non attribué' }}<span v-if="task.checklist.length"> · {{ doneCount }}/{{ task.checklist.length }} points</span><span v-if="task.photos.length"> · {{ task.photos.length }} photo(s)</span></p>
+        <p v-if="!token && (task.origin !== 'clean' || task.cost !== null)" class="text-xs text-muted">
+          <span v-if="task.origin !== 'clean'">Créé par {{ task.originApp ?? CLEANING_ORIGIN_LABEL[task.origin] }}</span><span v-if="task.origin !== 'clean' && task.cost !== null"> · </span><span v-if="task.cost !== null">{{ euros(task.cost) }}</span>
+        </p>
       </div>
       <div class="flex shrink-0 flex-col items-end gap-1">
         <UBadge :color="CLEANING_STATUS_COLOR[task.status]" variant="subtle">{{ CLEANING_STATUS_LABEL[task.status] }}</UBadge>
+        <UBadge v-if="task.type" :color="CLEANING_TYPE_COLOR[task.type]" variant="outline">{{ CLEANING_TYPE_LABEL[task.type] }}</UBadge>
         <UBadge v-if="task.late" color="error" variant="solid">En retard</UBadge>
+        <UBadge v-if="task.conflict" color="warning" variant="solid" icon="i-lucide-calendar-x">Pendant un séjour</UBadge>
       </div>
     </button>
 

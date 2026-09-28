@@ -2,6 +2,7 @@ parameters:
     env(UPDATE_REPOSITORY): 'fayouz/rocket-clean'
     env(ROCKET_PLACE_URL): ''
     env(ROCKET_PLACE_TOKEN): ''
+    env(CLEANING_RECURRENCE_DAYS): '14'
     env(ROCKET_CLOUD_URL): ''
     env(ROCKET_CLOUD_TOKEN): ''
     env(ROCKET_MAILER_URL): ''

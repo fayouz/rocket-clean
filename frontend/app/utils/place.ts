@@ -17,3 +17,12 @@ export const CLEANING_STATUS_LABEL: Record<string, string> = { todo: 'À faire',
 export const CLEANING_STATUS_COLOR: Record<string, 'neutral' | 'info' | 'success' | 'error'> = { todo: 'neutral', in_progress: 'info', done: 'success', cancelled: 'error' }
 export const PHOTO_MOMENT_LABEL: Record<string, string> = { before: 'Avant', after: 'Après', damage: 'Dégât' }
 export const hourFr = (d: string) => new Date(d).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+export const CLEANING_TYPES = ['rental', 'personal', 'maintenance'] as const
+export const CLEANING_TYPE_LABEL: Record<string, string> = { rental: 'Location', personal: 'Personnel', maintenance: 'Entretien' }
+export const CLEANING_TYPE_COLOR: Record<string, 'primary' | 'secondary' | 'warning'> = { rental: 'primary', personal: 'secondary', maintenance: 'warning' }
+export const CLEANING_ORIGIN_LABEL: Record<string, string> = { host: 'Rocket Host', pms: 'PMS', place: 'Rocket Place', clean: 'Rocket Clean', recurrence: 'Récurrence' }
+export const WEEKDAY_LABEL = ['', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
+/** Cents → "45,00 €" (empty for null). */
+export const euros = (cents: number | null | undefined) => cents === null || cents === undefined ? '' : (cents / 100).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })
+/** "45,5" / "45.50" → 4550 cents; empty → null. */
+export const toCents = (value: string | number | null | undefined) => value === null || value === undefined || String(value).trim() === '' ? null : Math.round(Number(String(value).replace(',', '.')) * 100)
