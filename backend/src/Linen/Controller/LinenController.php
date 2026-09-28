@@ -75,7 +75,7 @@ final class LinenController extends LinenApiController
     public function movements(string $placeId, Request $request): JsonResponse
     {
         $limit = max(1, min(500, (int) $request->query->get('limit', 100)));
-        $list = $this->em->getRepository(LinenMovement::class)->findBy(['placeId' => $this->placeParam($placeId)], ['createdAt' => 'DESC'], $limit);
+        $list = $this->em->getRepository(LinenMovement::class)->findBy(['placeId' => $this->placeParam($placeId)], ['createdAt' => 'DESC', 'id' => 'DESC'], $limit);
 
         return $this->json(array_map(static fn (LinenMovement $m) => $m->toArray(), $list));
     }

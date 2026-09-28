@@ -63,7 +63,7 @@ final class CleaningLinen
     /** @return list<array<string, mixed>> the movements recorded by this cleaning */
     public function movements(LinenJob $job): array
     {
-        $list = $this->em->createQuery('SELECT m FROM '.LinenMovement::class.' m WHERE m.externalRef LIKE :prefix ORDER BY m.createdAt ASC')
+        $list = $this->em->createQuery('SELECT m FROM '.LinenMovement::class.' m WHERE m.externalRef LIKE :prefix ORDER BY m.createdAt ASC, m.id ASC')
             ->setParameter('prefix', addcslashes($this->prefix($job), '%_').'%')->getResult();
 
         return array_map(static fn (LinenMovement $m) => $m->toArray(), $list);
