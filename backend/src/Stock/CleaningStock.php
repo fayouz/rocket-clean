@@ -10,7 +10,8 @@ use Symfony\Component\Uid\Uuid;
 /**
  * Stock of the place of a cleaning, and the stock reports made during it, whatever the owner of the stock:
  * - Rocket Stock configured (StockClient::isConfigured): levels read from GET /api/places/{placeId}/stock; a report
- *   records a consumption (POST /api/movements, type "consume", usage "rental" for a rental cleaning else "personal",
+ *   records a consumption only when a quantity is given, or when the state drops to "low"/"empty" (1 unit then)
+ *   (POST /api/movements, type "consume", usage "rental" for a rental cleaning else "personal",
  *   externalRef "cleaning:<id>:<levelId>" so it is never counted twice, origin "clean") then sets the level's state
  *   (PATCH /api/stock-levels/{id} {"level"}).
  * - else Rocket Place configured: its stock levels (PlaceDirectory), state only.
@@ -37,7 +38,7 @@ final class CleaningStock
     /**
      * Report of a stock level during a cleaning.
      *
-     * @param float|null $quantity consumed quantity (default 1)
+     * @param float|null $quantity consumed quantity; without it, 1 unit only when the state drops to low/empty
      *
      * @return array{id: string, name: string, level: string}
      */
@@ -54,9 +55,16 @@ final class CleaningStock
             }
         }
         $current ?? throw new HttpException(404, 'Article de stock inconnu pour ce lieu.');
+        $given = null !== $quantity && $quantity > 0;
+        $dropped = \in_array($level, ['low', 'empty'], true) && ($current['level'] ?? null) !== $level;
+        if (!$given && !$dropped) {
+            $this->stock->request('PATCH', '/api/stock-levels/'.$levelId, ['level' => $level]);
+
+            return ['id' => $levelId, 'name' => (string) ($current['name'] ?? $current['itemName'] ?? '?'), 'level' => $level];
+        }
         $movement = [
             'item' => $current['item'] ?? null, 'placeId' => $placeId, 'type' => 'consume',
-            'quantity' => null !== $quantity && $quantity > 0 ? $quantity : 1,
+            'quantity' => $given ? $quantity : 1,
             'usage' => CleaningTask::RENTAL === $task->getType() ? 'rental' : 'personal',
             'externalRef' => 'cleaning:'.$task->getId()->toRfc4122().':'.$levelId, 'origin' => 'clean',
             'reason' => mb_substr('Ménage · '.$task->getLabel(), 0, 255),

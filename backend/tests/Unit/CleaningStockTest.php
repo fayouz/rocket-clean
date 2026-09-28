@@ -75,6 +75,12 @@ final class CleaningStockTest extends TestCase
         $stock->report($this->task(null), self::LEVEL, 'empty', 2.5);
         $body = json_decode(array_values(array_filter($this->calls, static fn (array $c) => 'POST' === $c['method']))[0]['body'], true);
         self::assertSame(['personal', 2.5], [$body['usage'], $body['quantity']]);
+
+        // State unchanged ("ok" → "ok") without a quantity: no consumption, only the state
+        $this->calls = [];
+        $stock->report($this->task('booking:4:checkout'), self::LEVEL, 'ok');
+        self::assertSame([], array_filter($this->calls, static fn (array $c) => 'POST' === $c['method']), 'no consumption when nothing dropped');
+        self::assertCount(1, array_filter($this->calls, static fn (array $c) => 'PATCH' === $c['method']));
     }
 
     public function testUnknownLevelIsA404(): void
