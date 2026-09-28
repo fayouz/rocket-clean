@@ -9,12 +9,13 @@
 - `Controller/CleaningController` (planification = CLEAN_MANAGE, exécution = personne attribuée ou non attribué), `Controller/PlaceController` (lieux), `Controller/PublicCleaningController` (lien secret, `PublicRateLimiter`), `Cleaning/*` (Work, LinkSigner, Notifier, Settings, Schedule). Accès : `Security/CleanAccessVoter`, `Security/CleanScopeGuardListener` (applications pour elles-mêmes). Tableau de bord : `Dashboard/CleaningSection`. Démo : `Command/CleanDemoSeeder`.
 - Les chemins d'API restent ceux de Rocket Place (`/api/places/{placeId}/cleanings`…) : un PMS bascule en changeant l'URL et le jeton.
 - **Linge** : module isolé `src/Linen/` (namespace `App\Linen\*`, entités `Linen/Entity` mappées à part dans `doctrine.yaml`, tables `linen_*`, API `/api/linen/*`, voter `LINEN_READ`/`LINEN_MANAGE`, `Dashboard/LinenSection`, `Command/LinenDemoSeeder`). Toute quantité change par `LinenLedger::move()` (mouvement idempotent par `externalRef`, strict sauf relevés terrain `lenient`). Couplage au ménage **uniquement** par les ports `Linen/Contract/*` (`CleaningJobs`, `ArrivalSource`, `PlaceNames`) implémentés par `Cleaning/LinenBridge` ; `PublicCleaningController` appelle `Linen/CleaningLinen`. Ne pas importer `App\Entity\*` depuis `App\Linen`. Front : `pages/linge/*`, `components/linen/*`, `types/linen.ts`, `utils/linen.ts`.
+- Assistant vocal : `frontend/app/utils/assistant/parser.ts` (analyse pure, tests `npm run test` = `node --test tests/*.test.ts`, repris de Doc Assist `src/Assistant`), `composables/useSpeech.ts` (Web Speech API, aucun son au serveur), `components/CleaningAssistant.vue` (dans `CleaningCard`), compte rendu `Cleaning/CleaningReport` (écrit par `CleaningWork::apply` au passage à done, e-mail `report` désactivé par défaut).
 - Front : `pages/menage.vue` (téléphone), `pages/places/index.vue` + `[id].vue` (`CleaningTab`, `CleaningCard`), `pages/m/[token].vue` (public).
 
 ## Vérifier avant de pousser
 ```bash
 cd backend && php bin/console lint:container && php bin/console doctrine:schema:validate && php bin/phpunit
-cd frontend && npm run lint && npm run typecheck
+cd frontend && npm run lint && npm run typecheck && npm run test
 cd docs && npm run lint && npm run typecheck && npm run generate   # si docs/ a changé
 ```
 

@@ -94,6 +94,17 @@ final class CleaningNotifier
         return $this->send(null, $this->adminEmails(), \sprintf('Ménages du %s : %d/%d terminés', $from->format('d/m'), $done, \count($tasks)), "<ul>$rows</ul>");
     }
 
+    /** Compte rendu of a completed cleaning (CleaningReport), to the administrators, when the "report" notification is on. */
+    public function report(CleaningTask $task): bool
+    {
+        $report = $task->getReport();
+        if (null === $report || !$this->settings->enabled('report')) {
+            return false;
+        }
+
+        return $this->send(null, $this->adminEmails(), 'Compte rendu de ménage : '.$task->getPlaceName(), CleaningReport::html($report));
+    }
+
     /** @param list<string> $to */
     private function send(?User $actor, array $to, string $subject, string $html): bool
     {

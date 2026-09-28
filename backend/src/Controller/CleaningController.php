@@ -142,7 +142,7 @@ final class CleaningController extends AbstractController
     }
 
     /**
-     * JSON, all optional. Anyone doing the cleaning: "status", "notes", "checklist": [{"index": int, "done": bool}].
+     * JSON, all optional. Anyone doing the cleaning: "status", "notes", "checklist": [{"index": int, "done": bool}], "incident": text.
      * Managers only: "label", "scheduledAt", "dueAt", "assigneeEmail"/"assigneeId" (null to unassign).
      */
     #[Route('/api/cleanings/{id}', name: 'api_cleaning_update', methods: ['PATCH'], requirements: ['id' => Requirement::UUID])]
@@ -192,10 +192,19 @@ final class CleaningController extends AbstractController
     public function photo(#[MapEntity] CleaningTask $task, Request $request): JsonResponse
     {
         $this->assertCanWork($task);
-        $this->work->addPhoto($task, $request->files->get('file'), (string) $request->request->get('moment', 'after'));
+        $this->work->addPhoto($task, $request->files->get('file'), (string) $request->request->get('moment', 'after'), $request->request->has('area') ? (string) $request->request->get('area') : null);
         $this->em->flush();
 
         return $this->json($task->toArray(), 201);
+    }
+
+    /** Compte rendu of the cleaning (written on completion; before that, the current state with "draft": true). */
+    #[Route('/api/cleanings/{id}/report', name: 'api_cleaning_report', methods: ['GET'], requirements: ['id' => Requirement::UUID])]
+    public function report(#[MapEntity] CleaningTask $task): JsonResponse
+    {
+        $this->assertCanWork($task);
+
+        return $this->json($this->work->report($task));
     }
 
     /** JSON {"stockLevelId": uuid, "level": ok|low|empty}: sets the place's stock level and records it on the cleaning. */
@@ -273,7 +282,9 @@ final class CleaningController extends AbstractController
     #[Route('/api/places/{placeId}/cleaning-checklist', name: 'api_place_cleaning_checklist', methods: ['GET'], requirements: ['placeId' => Requirement::UUID])]
     public function checklist(string $placeId, Request $request): JsonResponse
     {
-        return $this->json($this->planner->checklist($placeId, $this->templateType($request)));
+        $type = $this->templateType($request);
+
+        return $this->json($request->query->getBoolean('details') ? $this->planner->checklistLines($placeId, $type) : $this->planner->checklist($placeId, $type));
     }
 
     /** Occupied periods of a place [{"from", "until", "externalRef"}]. */
@@ -355,13 +366,24 @@ final class CleaningController extends AbstractController
         return new Response($this->work->photoContent($task, $fileId), 200, ['Content-Type' => 'application/octet-stream', 'Cache-Control' => 'no-store, private']);
     }
 
-    /** JSON {"items": [string, ...]}, query type (default rental): replaces the template of that type (existing tasks keep their own copy). */
+    /**
+     * JSON {"items": [string | {"label", "synonyms"?: [string], "photo"?: bool, "area"?: string}, ...]}, query type (default
+     * rental): replaces the template of that type (existing tasks keep their own copy). Synonyms help the voice assistant
+     * ("sdb" for "Salle de bain"); "photo" asks for a photo of the area in the end-of-cleaning photo round.
+     */
     #[Route('/api/places/{placeId}/cleaning-checklist', name: 'api_place_cleaning_checklist_update', methods: ['PUT'], requirements: ['placeId' => Requirement::UUID])]
     #[IsGranted('CLEAN_MANAGE')]
     public function updateChecklist(string $placeId, Request $request): JsonResponse
     {
-        $labels = array_values(array_filter(array_map(static fn ($l) => mb_substr(trim((string) $l), 0, 160), (array) ($request->toArray()['items'] ?? [])), static fn (string $l) => '' !== $l));
-        if (\count($labels) > 100) {
+        $lines = [];
+        foreach ((array) ($request->toArray()['items'] ?? []) as $item) {
+            $item = \is_array($item) ? $item : ['label' => $item];
+            $label = mb_substr(trim((string) ($item['label'] ?? '')), 0, 160);
+            if ('' !== $label) {
+                $lines[] = [$label, array_map('strval', array_filter((array) ($item['synonyms'] ?? []), 'is_scalar')), (bool) ($item['photo'] ?? false), isset($item['area']) && \is_scalar($item['area']) ? (string) $item['area'] : null];
+            }
+        }
+        if (\count($lines) > 100) {
             throw new HttpException(422, '100 points au plus.');
         }
         $type = $this->templateType($request);
@@ -370,15 +392,14 @@ final class CleaningController extends AbstractController
             $this->em->remove($item);
         }
         $this->em->flush();
-        foreach ($labels as $i => $label) {
-            $this->em->persist(new CleaningChecklistItem($placeId, $label, $i, $type));
+        foreach ($lines as $i => [$label, $synonyms, $photo, $area]) {
+            $this->em->persist((new CleaningChecklistItem($placeId, $label, $i, $type))->describe($synonyms, $photo, $area));
         }
         $this->em->flush();
 
-        return $this->json($this->planner->checklist($placeId, $type));
+        return $this->json($request->query->getBoolean('details') ? $this->planner->checklistLines($placeId, $type) : $this->planner->checklist($placeId, $type));
     }
 
-    /** @param array<string, mixed> $body */
     private function applyPlanning(CleaningTask $task, array $body): void
     {
         if (\array_key_exists('dueAt', $body)) {

@@ -42,27 +42,37 @@ final class PublicCleaningController extends AbstractController
         return $this->view($this->task($token, $request));
     }
 
-    /** JSON, all optional: "status", "notes", "checklist": [{"index": int, "done": bool}]. Planning fields are ignored. */
+    /** JSON, all optional: "status", "notes", "checklist": [{"index": int, "done": bool}], "incident": text. Planning fields are ignored. */
     #[Route('/api/public/cleaning/{token}', name: 'api_public_cleaning_update', methods: ['PATCH'], requirements: ['token' => self::TOKEN])]
     public function update(string $token, Request $request): JsonResponse
     {
         $task = $this->task($token, $request);
         $body = $request->toArray();
-        $this->work->apply($task, array_intersect_key($body, ['status' => 1, 'notes' => 1, 'checklist' => 1]));
+        $this->work->apply($task, array_intersect_key($body, ['status' => 1, 'notes' => 1, 'checklist' => 1, 'incident' => 1]));
         $this->em->flush();
 
         return $this->view($task);
     }
 
-    /** Multipart: "file", "moment" (before|after|damage). */
+    /** Multipart: "file", "moment" (before|after|damage), "area" (optional, photo round). */
     #[Route('/api/public/cleaning/{token}/photos', name: 'api_public_cleaning_photo', methods: ['POST'], requirements: ['token' => self::TOKEN])]
     public function photo(string $token, Request $request): JsonResponse
     {
         $task = $this->task($token, $request);
-        $this->work->addPhoto($task, $request->files->get('file'), (string) $request->request->get('moment', 'after'));
+        $this->work->addPhoto($task, $request->files->get('file'), (string) $request->request->get('moment', 'after'), $request->request->has('area') ? (string) $request->request->get('area') : null);
         $this->em->flush();
 
         return $this->view($task, 201);
+    }
+
+    /** Compte rendu of this cleaning (see CleaningController::report). */
+    #[Route('/api/public/cleaning/{token}/report', name: 'api_public_cleaning_report', methods: ['GET'], requirements: ['token' => self::TOKEN])]
+    public function report(string $token, Request $request): JsonResponse
+    {
+        $response = $this->json($this->work->report($this->task($token, $request)));
+        $response->headers->set('Cache-Control', 'no-store, private');
+
+        return $response;
     }
 
     /** Content of one of this cleaning's photos ("file:<id>" as listed in "photos"). */
