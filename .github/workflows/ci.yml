@@ -46,6 +46,8 @@ jobs:
 
   demo:
     name: Demo environment (compose)
+    # Lent : lancé seulement à la demande (Actions › CI › Run workflow).
+    if: github.event_name == 'workflow_dispatch'
     needs: [backend, frontend]
     uses: fayouz/rocket-core/.github/workflows/brick-demo.yml@v0.2.1
     with:
