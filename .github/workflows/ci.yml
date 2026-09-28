@@ -42,7 +42,7 @@ jobs:
       contents: read
       packages: write
     # TODO: pin to the next rocket-core tag once fayouz/rocket-core#6 (docker-images.yml) is released.
-    uses: fayouz/rocket-core/.github/workflows/docker-images.yml@feature/docker-images-workflow
+    uses: fayouz/rocket-core/.github/workflows/docker-images.yml@v0.3.1
 
   demo:
     name: Demo environment (compose)
