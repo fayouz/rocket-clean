@@ -5,7 +5,7 @@ namespace App\Mailer;
 use Symfony\Component\Uid\Uuid;
 
 /**
- * Rocket Mailer used whenever ROCKET_MAILER_URL / ROCKET_MAILER_TOKEN (or suite mode) are not configured: a send is
+ * Rocket Mailer used whenever ROCKET_MAILER_URL / secret rocket.mailer.token (or suite mode) are not configured: a send is
  * only recorded in var/demo-mailer-<env>.json. Nothing ever leaves the server (keeps tests offline).
  */
 final class DemoMailer

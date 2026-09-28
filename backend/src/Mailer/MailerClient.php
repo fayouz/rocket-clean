@@ -2,6 +2,7 @@
 
 namespace App\Mailer;
 
+use App\Secrets\IntegrationSecrets;
 use Rocket\Core\Oidc\OidcException;
 use Rocket\Core\Suite\ServiceTokenProvider;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -10,10 +11,10 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 /**
  * Client of Rocket Mailer (rocket-middleware/rocket-mailer), the mail system of the Rocket suite: Clean never speaks
  * SMTP itself. POST /api/emails, on behalf of a user known to Rocket Mailer (X-Impersonate-User, the application
- * must be allowed to impersonate), with the application token ROCKET_MAILER_TOKEN (rma_…) or, in suite mode
+ * must be allowed to impersonate), with the application token secret rocket.mailer.token (rma_…) or, in suite mode
  * (ROCKET_AUTH_URL + ROCKET_AUTH_CLIENT_SECRET), a token of Rocket Auth for the audience "rocket-mailer" (client
  * credentials, rocket-core ServiceTokenProvider), the static token staying the fallback.
- * ROCKET_MAILER_MAILBOX: optional sending mailbox. Without ROCKET_MAILER_URL/TOKEN: DemoMailer (no network).
+ * ROCKET_MAILER_MAILBOX: optional sending mailbox. Without ROCKET_MAILER_URL + secret rocket.mailer.token: DemoMailer (no network).
  */
 final class MailerClient
 {
@@ -24,7 +25,7 @@ final class MailerClient
         private readonly HttpClientInterface $http,
         private readonly DemoMailer $demo,
         private readonly string $mailerUrl,
-        private readonly string $mailerToken,
+        private readonly IntegrationSecrets $secrets,
         private readonly string $mailerMailbox,
         private readonly ?ServiceTokenProvider $serviceTokens = null,
     ) {
@@ -32,7 +33,7 @@ final class MailerClient
 
     public function isDemo(): bool
     {
-        return '' === trim($this->mailerUrl) || ('' === trim($this->mailerToken) && !$this->usesSuiteTokens());
+        return '' === trim($this->mailerUrl) || ('' === trim($this->secrets->get('rocket.mailer.token')) && !$this->usesSuiteTokens());
     }
 
     public function usesSuiteTokens(): bool
@@ -85,12 +86,12 @@ final class MailerClient
             try {
                 return $this->serviceTokens->tokenForClient(self::AUDIENCE);
             } catch (OidcException $e) {
-                if ('' === trim($this->mailerToken)) {
+                if ('' === trim($this->secrets->get('rocket.mailer.token'))) {
                     throw new HttpException(502, 'Rocket Auth ne délivre pas de jeton pour Rocket Mailer : '.$e->getMessage());
                 }
             }
         }
 
-        return $this->mailerToken;
+        return $this->secrets->get('rocket.mailer.token');
     }
 }
